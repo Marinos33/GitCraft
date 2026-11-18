@@ -3,27 +3,12 @@
 //! Defaults for the settings below.
 
 use crate::git;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 
 /// Initial commits in the graph: minimum 500.
 pub const MIN_INITIAL_COMMITS: usize = 500;
-
-#[derive(Deserialize, Serialize, Clone, Default, Debug)]
-#[serde(rename_all = "camelCase", default)]
-pub struct RuntimeSettings {
-    /// Experimental > Git Executable: an explicit git.exe (empty = the one on PATH).
-    pub git_path: String,
-    /// SSH > Use local SSH agent (and the system's SSH config). When off, `ssh_private_key` is used.
-    pub ssh_use_agent: bool,
-    pub ssh_private_key: String,
-    /// General > Use extended logging in activity log.
-    pub extended_log: bool,
-    /// Repo-Specific > Encoding: repository path -> encoding label (WHATWG names such as windows-1252).
-    pub encodings: HashMap<String, String>,
-}
 
 fn same_path(a: &Path, b: &str) -> bool {
     let n = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_lowercase();
@@ -32,8 +17,8 @@ fn same_path(a: &Path, b: &str) -> bool {
 
 /// The encoding chosen for files in this repository (None = UTF-8).
 pub fn encoding_for(dir: &Path) -> Option<&'static encoding_rs::Encoding> {
-    let r = runtime();
-    let label = r.encodings.iter().find(|(p, _)| same_path(dir, p)).map(|(_, e)| e.clone())?;
+    let settings = crate::settings::current();
+    let label = settings.encodings().find(|(p, _)| same_path(dir, p)).map(|(_, e)| e.to_owned())?;
     encoding_rs::Encoding::for_label(label.trim().as_bytes()).filter(|e| *e != encoding_rs::UTF_8)
 }
 
@@ -64,21 +49,9 @@ pub fn encode(text: &str, enc: &'static encoding_rs::Encoding, had_bom: bool) ->
     Ok(bytes.into_owned())
 }
 
-static RUNTIME: RwLock<Option<RuntimeSettings>> = RwLock::new(None);
-
-pub fn set_runtime(s: RuntimeSettings) {
-    if let Ok(mut r) = RUNTIME.write() {
-        *r = Some(s);
-    }
-}
-
-pub fn runtime() -> RuntimeSettings {
-    RUNTIME.read().ok().and_then(|r| r.clone()).unwrap_or(RuntimeSettings { ssh_use_agent: true, ..Default::default() })
-}
-
 /// The git program to start.
 pub fn git_program() -> String {
-    let r = runtime();
+    let r = crate::settings::current();
     if r.git_path.trim().is_empty() {
         "git".into()
     } else {
@@ -87,7 +60,7 @@ pub fn git_program() -> String {
 }
 
 /// GIT_SSH_COMMAND for a chosen private key (forward slashes: the value goes through Git's sh).
-pub fn ssh_command(r: &RuntimeSettings) -> Option<String> {
+pub fn ssh_command(r: &crate::settings::Settings) -> Option<String> {
     if r.ssh_use_agent || r.ssh_private_key.trim().is_empty() {
         return None;
     }
@@ -289,16 +262,16 @@ mod tests {
         let bytes = encode("hi", le, true).unwrap();
         assert_eq!(bytes, vec![0xFF, 0xFE, b'h', 0, b'i', 0]);
         assert_eq!(decode(&bytes, le), "hi");
-        set_runtime(RuntimeSettings { encodings: [(r"C:\Repo".to_string(), "windows-1252".to_string())].into(), ssh_use_agent: true, ..Default::default() });
-        #[cfg(windows)] assert_eq!(encoding_for(Path::new("c:/repo/")), Some(w1252));
-        #[cfg(not(windows))] assert_eq!(encoding_for(Path::new("c:/repo/")), None);
-        assert_eq!(encoding_for(Path::new("c:/other")), None);
-        set_runtime(RuntimeSettings { ssh_use_agent: true, ..Default::default() });
+        crate::settings::tests::with(crate::settings::Settings::default().with_encoding(r"C:\Repo", "windows-1252"), || {
+            #[cfg(windows)] assert_eq!(encoding_for(Path::new("c:/repo/")), Some(w1252));
+            #[cfg(not(windows))] assert_eq!(encoding_for(Path::new("c:/repo/")), None);
+            assert_eq!(encoding_for(Path::new("c:/other")), None);
+        });
     }
 
     #[test]
     fn chosen_ssh_key_becomes_ssh_command() {
-        let mut r = RuntimeSettings { ssh_use_agent: false, ssh_private_key: r"C:\Users\Sam\.ssh\id_ed25519".into(), ..Default::default() };
+        let mut r = crate::settings::Settings { ssh_use_agent: false, ssh_private_key: r"C:\Users\Sam\.ssh\id_ed25519".into(), ..Default::default() };
         assert_eq!(ssh_command(&r).as_deref(), Some("ssh -i 'C:/Users/Sam/.ssh/id_ed25519' -o IdentitiesOnly=yes"));
         r.ssh_use_agent = true;
         assert_eq!(ssh_command(&r), None);

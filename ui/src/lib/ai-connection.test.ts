@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ai, generateCommitMessage } from "./ai";
 import { aiApi } from "./integrations";
+import { flushPersistence, startPersistence } from "./persistence";
 import { DEFAULT_AI, useStore } from "./store";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -13,7 +14,7 @@ afterEach(() => {
   vi.mocked(invoke).mockReset();
 });
 
-describe("all AI features share the selected connection", () => {
+describe("all AI features use the saved connection", () => {
   const requests: [string, () => Promise<unknown>][] = [
     ["ai_commit_message", () => ai.commitMessage("/repo")],
     ["ai_stash_message", () => ai.stashMessage("/repo")],
@@ -24,28 +25,33 @@ describe("all AI features share the selected connection", () => {
     ["ai_resolve_conflict", () => aiApi.resolveConflict("base", "ours", "theirs", "file")],
     ["ai_test_connection", () => aiApi.test()],
   ];
-  it.each(requests)("%s carries the selected connection with the operation", async (command, run) => {
-    const config = { ...DEFAULT_AI, provider: "custom" as const, endpoint: "http://localhost:1234/v1", defaultModel: "local-model", responseFormat: "text" as const };
-    useStore.getState().setSettings({ ai: config });
+  it.each(requests)("%s sends no connection settings with the operation", async (command, run) => {
     vi.mocked(invoke).mockResolvedValueOnce("result");
     await expect(run()).resolves.toBe("result");
     expect(invoke).toHaveBeenCalledTimes(1);
-    expect(invoke).toHaveBeenCalledWith(command, expect.objectContaining({ config }));
+    expect(vi.mocked(invoke).mock.calls[0][0]).toBe(command);
+    expect(vi.mocked(invoke).mock.calls[0][1] ?? {}).not.toHaveProperty("config");
   });
 
-  it("does not send a request if applying connection settings fails", async () => {
-    vi.mocked(invoke).mockRejectedValueOnce(new Error("settings unavailable"));
-    await expect(aiApi.test()).rejects.toThrow("settings unavailable");
-    expect(invoke).toHaveBeenCalledTimes(1);
-  });
-
-  it.each(["codex", "claude_code"] as const)("sends %s program and account folder to the same commit helper", async (provider) => {
-    const cliPath = "/example/bin/agent";
-    const cliConfigDir = "/example/account";
-    useStore.getState().setSettings({ ai: { ...DEFAULT_AI, provider, cliPath, cliConfigDir } });
-    vi.mocked(invoke).mockResolvedValueOnce(["Summarize changes", ""]);
-    await expect(ai.commitMessage("/repo")).resolves.toEqual(["Summarize changes", ""]);
-    expect(invoke).toHaveBeenCalledWith("ai_commit_message", { path: "/repo", sha: null, config: expect.objectContaining({ provider, cliPath, cliConfigDir }) });
+  it("saves pending preference edits before a request, and sends nothing if saving fails", async () => {
+    const stop = startPersistence();
+    try {
+      const config = { ...DEFAULT_AI, provider: "custom" as const, endpoint: "http://localhost:1234/v1" };
+      useStore.getState().setSettings({ ai: config });
+      vi.mocked(invoke).mockResolvedValueOnce(undefined).mockResolvedValueOnce("ok");
+      await expect(aiApi.test()).resolves.toBe("ok");
+      expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(["save_settings", "ai_test_connection"]);
+      expect(vi.mocked(invoke).mock.calls[0][1]).toMatchObject({ settings: { settings: { ai: config } } });
+      vi.mocked(invoke).mockReset();
+      useStore.getState().setSettings({ ai: { ...config, defaultModel: "other" } });
+      vi.mocked(invoke).mockRejectedValueOnce(new Error("settings unavailable"));
+      await expect(aiApi.listModels()).rejects.toThrow("settings unavailable");
+      expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(["save_settings"]);
+    } finally {
+      stop();
+      vi.mocked(invoke).mockReset().mockResolvedValue(undefined);
+      await flushPersistence();
+    }
   });
 });
 
@@ -54,10 +60,10 @@ it("discovers the program and models without changing the active connection or r
   const model = { id: "sonnet", name: "Sonnet" };
   vi.mocked(invoke).mockResolvedValueOnce({ path: "/bin/claude", version: "Claude Code" }).mockResolvedValueOnce([model]);
   await expect(aiApi.findProgram(config.provider)).resolves.toMatchObject({ path: "/bin/claude" });
-  await expect(aiApi.listModels(config)).resolves.toEqual([model]);
+  await expect(aiApi.listModels()).resolves.toEqual([model]);
   expect(vi.mocked(invoke).mock.calls).toEqual([
     ["ai_find_program", { provider: "claude_code" }],
-    ["ai_list_models", { config }],
+    ["ai_list_models", undefined],
   ]);
 });
 
@@ -73,16 +79,4 @@ it("preserves a commit message edited while AI generation was running", async ()
     expect(useStore.getState().drafts[path].summary).toBe("Keep my newer draft");
     expect(useStore.getState().dialog).toMatchObject({ kind: "choice", text: expect.stringContaining("Generated suggestion") });
   } finally { request.mockRestore(); useStore.setState({ dialog: null }); }
-});
-
-
-it("keeps concurrent operations bound to different connection snapshots", async () => {
-  const pending: (() => void)[] = [];
-  vi.mocked(invoke).mockImplementation((_command, args) => new Promise(resolve => pending.push(() => resolve((args as {config: {provider: string}}).config.provider))));
-  useStore.getState().setSettings({ ai: { ...DEFAULT_AI, provider: "codex" } });
-  const first = aiApi.test();
-  useStore.getState().setSettings({ ai: { ...DEFAULT_AI, provider: "claude_code" } });
-  const second = aiApi.test();
-  pending[1](); pending[0]();
-  await expect(first).resolves.toBe("codex"); await expect(second).resolves.toBe("claude_code");
 });

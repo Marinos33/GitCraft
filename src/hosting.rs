@@ -3,12 +3,11 @@
 //! Jira Data Center, Trello (issue trackers). This file: connections, sign-in, tokens for Git, remotes.
 //! hosting_api.rs: pull requests, issues, Launchpad, repositories to clone, SSH keys.
 //! Tokens live in the operating system's credential store, never in GitCraft's settings file; hosts, user
-//! names and organisations are ordinary settings passed in with `set_config`.
+//! names and organisations are ordinary settings read by `settings.rs`.
 
 pub use crate::hosting_api::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::RwLock;
 
 const SERVICE: &str = "GitCraft";
 
@@ -50,7 +49,7 @@ pub fn secret_name(id: &str) -> String {
 }
 
 /// Hosts, user names and organisations for the services (not secret).
-#[derive(Deserialize, Serialize, Clone, Default, Debug)]
+#[derive(Deserialize, Serialize, Clone, Default, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
     pub github_enterprise_host: String,
@@ -68,16 +67,16 @@ pub struct Config {
     pub trello_key: String,
 }
 
-static CONFIG: RwLock<Option<Config>> = RwLock::new(None);
-
-pub fn set_config(c: Config) {
-    if let Ok(mut w) = CONFIG.write() {
-        *w = Some(c);
-    }
+pub fn config() -> Config {
+    crate::settings::current().integrations.clone()
 }
 
-pub fn config() -> Config {
-    CONFIG.read().ok().and_then(|c| c.clone()).unwrap_or_default()
+/// Use `c` as the integration settings (tests only; the app reads them from the settings file).
+#[cfg(test)]
+pub fn set_config(c: Config) {
+    let mut settings = (*crate::settings::current()).clone();
+    settings.integrations = c;
+    crate::settings::set(settings);
 }
 
 fn clean_host(h: &str) -> String {
@@ -351,14 +350,7 @@ pub fn git_login(host: &str) -> Option<(String, String)> {
 
 /// Tell Git which hosts have a connected service. The tokens stay in the credential store; Git
 /// asks GitCraft's credential helper for them when it needs them.
-pub fn sync_git_credentials(gitlab_host: &str) {
-    if !gitlab_host.trim().is_empty() {
-        let mut c = config();
-        if c.gitlab_host.trim().is_empty() {
-            c.gitlab_host = gitlab_host.trim().to_string();
-            set_config(c);
-        }
-    }
+pub fn sync_git_credentials() {
     let hosts = GIT_SERVICES.into_iter()
         .filter(|id| secret_get(&secret_name(id)).is_some())
         .map(host_of)
@@ -373,21 +365,11 @@ pub fn git_credential_main(operation: &str) -> i32 {
     use std::io::{Read, Write};
     let mut input = String::new();
     if std::io::stdin().take(64 * 1024).read_to_string(&mut input).is_err() { return 1; }
-    if operation == "get" { load_saved_config(); }
+    if operation == "get" { crate::settings::load(); }
     let reply = crate::git::credential_reply(operation, &input, git_login);
     let mut out = std::io::stdout();
     if out.write_all(reply.as_bytes()).and_then(|_| out.flush()).is_err() { return 1; }
     0
-}
-
-/// Read the integrations section of the saved preferences, for the credential helper process.
-fn load_saved_config() {
-    let path = crate::sample::data_dir().join("settings.json");
-    let Some(saved) = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) else { return };
-    let settings = &saved["settings"];
-    let mut c: Config = serde_json::from_value(settings["integrations"].clone()).unwrap_or_default();
-    if c.gitlab_host.trim().is_empty() { c.gitlab_host = s(&settings["gitlabHost"]); }
-    set_config(c);
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

@@ -19,6 +19,7 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 ### Changed
 
 - AI providers, model lists and hosting services now share one network connection setup. AI requests no longer follow redirects, so an API key is never sent on to another address; update the endpoint if the provider reports a redirect.
+- GitCraft now reads the Git executable, SSH key, logging, encoding, integration and AI preferences from its saved settings file at start-up and after each change, instead of receiving them separately from the window. A connection test or model list saves pending preference edits first.
 
 ### Fixed
 

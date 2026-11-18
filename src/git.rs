@@ -197,7 +197,7 @@ pub fn credential_reply(operation: &str, input: &str, login: impl Fn(&str) -> Op
 
 pub fn git_cmd(dir: &Path) -> Command {
     // Preferences > Experimental > Git Executable, and SSH > private key (when the SSH agent isn't used).
-    let rt = crate::prefs::runtime();
+    let rt = crate::settings::current();
     let mut c = Command::new(crate::prefs::git_program());
     c.current_dir(dir);
     if let Some(ssh) = crate::prefs::ssh_command(&rt) {

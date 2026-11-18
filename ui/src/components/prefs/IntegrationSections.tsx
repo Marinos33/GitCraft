@@ -388,7 +388,7 @@ export function AiSection() {
     const request = ++catalogRequest.current;
     setCatalog((prev) => ({ source: from, loading: true, models: prev?.source === from ? prev.models : [] }));
     try {
-      const list = await aiApi.listModels(config);
+      const list = await aiApi.listModels();
       if (request === catalogRequest.current) setCatalog({ source: from, loading: false, models: list });
     } catch (e) {
       if (request === catalogRequest.current) setCatalog((prev) => ({ source: from, loading: false, models: prev?.models ?? [], error: String(e) }));

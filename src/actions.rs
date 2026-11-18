@@ -258,7 +258,7 @@ pub struct UndoInfo {
 
 /// Activity log text: Git's message, or with extended logging both outputs in full.
 fn log_output(o: &git::GitOut) -> String {
-    if crate::prefs::runtime().extended_log {
+    if crate::settings::current().extended_log {
         let mut t = String::new();
         if !o.stdout.trim().is_empty() {
             t.push_str(o.stdout.trim_end());

@@ -41,25 +41,9 @@ impl Default for AiConfig {
     }
 }
 
-static CONFIG: std::sync::RwLock<Option<AiConfig>> = std::sync::RwLock::new(None);
-
-pub fn set_config(c: AiConfig) {
-    if let Ok(mut w) = CONFIG.write() { *w = Some(c); }
-}
-
+/// The AI settings in effect. Each request reads one snapshot when it starts.
 fn config() -> AiConfig {
-    REQUEST_CONFIG.with(|slot| slot.borrow().clone()).unwrap_or_else(|| CONFIG.read().ok().and_then(|c| c.clone()).unwrap_or_default())
-}
-
-thread_local! { static REQUEST_CONFIG: std::cell::RefCell<Option<AiConfig>> = const { std::cell::RefCell::new(None) }; }
-
-/// Scope an immutable snapshot to the blocking worker executing this request.
-pub fn with_config<T>(value: AiConfig, run: impl FnOnce() -> T) -> T {
-    struct Restore(Option<AiConfig>);
-    impl Drop for Restore { fn drop(&mut self) { REQUEST_CONFIG.with(|slot| slot.replace(self.0.take())); } }
-    let previous = REQUEST_CONFIG.with(|slot| slot.replace(Some(value)));
-    let _restore = Restore(previous);
-    run()
+    crate::settings::current().ai.clone()
 }
 
 pub fn key_name(provider: &str) -> &'static str {
@@ -761,26 +745,5 @@ mod connection_tests {
         let format_error = json!({"error":{"message":"response_format unsupported"}});
         for status in [401, 403, 404, 429, 500] { assert!(!unsupported_format(status, &format_error)); }
         assert!(!unsupported_format(400, &json!({"error":{"message":"model not found"}})));
-    }
-}
-
-
-#[cfg(test)]
-mod isolation_tests {
-    use super::*;
-    #[test]
-    fn concurrent_workers_retain_their_request_snapshot_and_restore_it_afterwards() {
-        let barrier=std::sync::Arc::new(std::sync::Barrier::new(2));
-        std::thread::scope(|scope| {
-            for model in ["first-connection","second-connection"] {
-                let barrier=barrier.clone();
-                scope.spawn(move || with_config(AiConfig {default_model:model.into(),..Default::default()},|| {
-                    barrier.wait();assert_eq!(config().default_model,model);
-                    with_config(AiConfig {default_model:"nested".into(),..Default::default()},||assert_eq!(config().default_model,"nested"));
-                    assert_eq!(config().default_model,model);
-                }));
-            }
-        });
-        assert!(REQUEST_CONFIG.with(|slot|slot.borrow().is_none()));
     }
 }

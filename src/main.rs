@@ -26,6 +26,7 @@ mod rewrite;
 mod metrics;
 mod net;
 mod sample;
+mod settings;
 mod shell;
 mod shot;
 mod terminal;
@@ -410,7 +411,7 @@ fn set_secret(name: String, value: String) -> Result<(), String> {
         return Err("unknown secret".into());
     }
     hosting::secret_set(&name, value.trim())?;
-    if name.ends_with("-token") { hosting::sync_git_credentials(""); }
+    if name.ends_with("-token") { hosting::sync_git_credentials(); }
     Ok(())
 }
 
@@ -469,13 +470,6 @@ async fn create_issue(path: Option<String>, gitlab_host: String, tracker: Option
     .await?
 }
 
-/// Preferences > Integrations: hosts, user names and organisations (tokens stay in the credential store).
-#[tauri::command]
-fn set_integration_config(config: hosting::Config) {
-    hosting::set_config(config);
-    std::thread::spawn(|| hosting::sync_git_credentials(""));
-}
-
 #[tauri::command]
 async fn integration_statuses(ids: Vec<String>) -> Result<Vec<hosting::ServiceStatus>, String> {
     blocking(move || {
@@ -491,7 +485,7 @@ async fn integration_sign_in(id: String, method: String) -> Result<String, Strin
     blocking(move || {
         let token = if method == "gh" { hosting::gh_cli_token()? } else { hosting::browser_sign_in(&id)? };
         hosting::secret_set(&hosting::secret_name(&id), &token)?;
-        hosting::sync_git_credentials("");
+        hosting::sync_git_credentials();
         hosting::whoami_id(&id)
     })
     .await?
@@ -592,42 +586,37 @@ fn open_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn ai_commit_message(path: String, sha: Option<String>, config: ai::AiConfig) -> Result<(String, String), String> {
-    blocking(move || ai::with_config(config, || ai::commit_message(Path::new(&path), sha.as_deref()))).await?
+async fn ai_commit_message(path: String, sha: Option<String>) -> Result<(String, String), String> {
+    blocking(move || ai::commit_message(Path::new(&path), sha.as_deref())).await?
 }
 
 #[tauri::command]
-async fn ai_stash_message(path: String, config: ai::AiConfig) -> Result<String, String> {
-    blocking(move || ai::with_config(config, || ai::stash_message(Path::new(&path)))).await?
+async fn ai_stash_message(path: String) -> Result<String, String> {
+    blocking(move || ai::stash_message(Path::new(&path))).await?
 }
 
 #[tauri::command]
-async fn ai_explain_commit(path: String, sha: String, config: ai::AiConfig) -> Result<String, String> {
-    blocking(move || ai::with_config(config, || ai::explain_commit(Path::new(&path), &sha))).await?
+async fn ai_explain_commit(path: String, sha: String) -> Result<String, String> {
+    blocking(move || ai::explain_commit(Path::new(&path), &sha)).await?
 }
 
 #[tauri::command]
-async fn ai_explain_branch(path: String, branch: String, base: Option<String>, config: ai::AiConfig) -> Result<String, String> {
-    blocking(move || ai::with_config(config, || {
+async fn ai_explain_branch(path: String, branch: String, base: Option<String>) -> Result<String, String> {
+    blocking(move || {
         let base = base.or_else(|| extras::default_target(Path::new(&path))).ok_or("No branch to compare with")?;
         ai::explain_branch(Path::new(&path), &branch, &base)
-    }))
+    })
     .await?
 }
 
 #[tauri::command]
-fn set_ai_config(config: ai::AiConfig) {
-    ai::set_config(config);
+async fn ai_test_connection() -> Result<String, String> {
+    blocking(ai::test_connection).await?
 }
 
 #[tauri::command]
-async fn ai_test_connection(config: ai::AiConfig) -> Result<String, String> {
-    blocking(move || ai::with_config(config, ai::test_connection)).await?
-}
-
-#[tauri::command]
-async fn ai_list_models(config: ai::AiConfig) -> Result<Vec<ai_models::Model>, String> {
-    blocking(move || ai_models::list(&config)).await?
+async fn ai_list_models() -> Result<Vec<ai_models::Model>, String> {
+    blocking(|| ai_models::list(&settings::current().ai)).await?
 }
 
 #[tauri::command]
@@ -637,18 +626,18 @@ async fn ai_find_program(provider: String) -> Result<ai_cli::DetectedProgram, St
 }
 
 #[tauri::command]
-async fn ai_pull_request(path: String, source: String, target: String, config: ai::AiConfig) -> Result<(String, String), String> {
-    blocking(move || ai::with_config(config, || ai::pull_request_text(Path::new(&path), &source, &target))).await?
+async fn ai_pull_request(path: String, source: String, target: String) -> Result<(String, String), String> {
+    blocking(move || ai::pull_request_text(Path::new(&path), &source, &target)).await?
 }
 
 #[tauri::command]
-async fn ai_resolve_conflict(base: String, ours: String, theirs: String, file: String, config: ai::AiConfig) -> Result<String, String> {
-    blocking(move || ai::with_config(config, || ai::resolve_conflict(&base, &ours, &theirs, &file))).await?
+async fn ai_resolve_conflict(base: String, ours: String, theirs: String, file: String) -> Result<String, String> {
+    blocking(move || ai::resolve_conflict(&base, &ours, &theirs, &file)).await?
 }
 
 #[tauri::command]
-async fn ai_compose(path: String, config: ai::AiConfig) -> Result<Vec<ai::ComposedCommit>, String> {
-    blocking(move || ai::with_config(config, || ai::compose(Path::new(&path)))).await?
+async fn ai_compose(path: String) -> Result<Vec<ai::ComposedCommit>, String> {
+    blocking(move || ai::compose(Path::new(&path))).await?
 }
 
 /// Save a patch (uncommitted changes when `shas` is empty, else those commits) to a file the person picks.
@@ -685,19 +674,13 @@ async fn repo_status(path: String, read_id: Option<String>) -> Result<git::WorkS
 
 /// Hand the tokens of connected services to Git (HTTPS push / pull / fetch / clone).
 #[tauri::command]
-async fn sync_git_credentials(gitlab_host: String) -> Result<(), String> {
-    blocking(move || hosting::sync_git_credentials(&gitlab_host)).await
+async fn sync_git_credentials() -> Result<(), String> {
+    blocking(hosting::sync_git_credentials).await
 }
 
 #[tauri::command]
 async fn remote_auth(path: String, gitlab_host: String, read_id: Option<String>) -> Result<hosting::RemoteAuth, String> {
     read_blocking(read_id, move || hosting::remote_auth(Path::new(&path), &gitlab_host)).await
-}
-
-/// Preferences that change how Git runs: executable, SSH key / agent, extended logging.
-#[tauri::command]
-fn set_runtime_settings(settings: prefs::RuntimeSettings) {
-    prefs::set_runtime(settings);
 }
 
 #[tauri::command]
@@ -986,27 +969,23 @@ async fn file_text(path: String, file: String, rev: Option<String>, read_id: Opt
     read_blocking(read_id, move || files::file_text(Path::new(&path), &file, rev.as_deref())).await?
 }
 
-fn settings_file() -> PathBuf {
-    sample::data_dir().join("settings.json")
-}
-
 #[tauri::command]
 fn load_settings(state: State<'_, AppState>) -> serde_json::Value {
     if state.screenshot.is_some() {
         return serde_json::Value::Null; // pictures always start from the same state
     }
-    std::fs::read_to_string(settings_file())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or(serde_json::Value::Null)
+    settings::read_saved()
 }
 
+/// Write the front end's settings file, then apply the part the back end acts on.
 #[tauri::command]
 fn save_settings(settings: serde_json::Value, state: State<'_, AppState>) -> Result<(), String> {
     if state.screenshot.is_some() {
+        // Pictures keep the defaults; desktop validation runs apply settings in memory only.
+        if state.shot_view.as_deref() == Some("validation") { apply_settings(&settings); }
         return Ok(());
     }
-    let f = settings_file();
+    let f = settings::file();
     if let Some(d) = f.parent() {
         std::fs::create_dir_all(d).map_err(err)?;
     }
@@ -1014,7 +993,17 @@ fn save_settings(settings: serde_json::Value, state: State<'_, AppState>) -> Res
     // cannot truncate the last usable preferences file.
     let pending = f.with_extension("json.tmp");
     std::fs::write(&pending, serde_json::to_string_pretty(&settings).map_err(err)?).map_err(err)?;
-    std::fs::rename(pending, f).map_err(err)
+    std::fs::rename(pending, f).map_err(err)?;
+    apply_settings(&settings);
+    Ok(())
+}
+
+/// Make `saved` (the settings file's content) the settings in effect.
+fn apply_settings(saved: &serde_json::Value) {
+    let next = settings::Settings::from_saved(saved);
+    let hosts_changed = next.integrations != settings::current().integrations;
+    settings::set(next);
+    if hosts_changed { std::thread::spawn(hosting::sync_git_credentials); }
 }
 
 #[tauri::command]
@@ -1112,6 +1101,11 @@ fn main() {
         }
     });
 
+    // The back end reads its settings from the saved file; screenshots always start from defaults.
+    if screenshot.is_none() {
+        settings::load();
+        std::thread::spawn(hosting::sync_git_credentials);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -1175,7 +1169,6 @@ fn main() {
             ai_explain_commit,
             ai_explain_branch,
             ai_compose,
-            set_ai_config,
             ai_test_connection,
             ai_list_models,
             ai_find_program,
@@ -1187,7 +1180,6 @@ fn main() {
             agent_sessions,
             pr_template,
             repo_summary,
-            set_runtime_settings,
             tool_versions,
             git_config_get,
             gpg_generate_key,
@@ -1217,7 +1209,6 @@ fn main() {
             cancel_pr_merge,
             launchpad,
             create_issue,
-            set_integration_config,
             integration_statuses,
             integration_sign_in,
             integration_repos_page,

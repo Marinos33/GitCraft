@@ -2,7 +2,6 @@ import { WatchManager } from "@/lib/watch-manager";
 import { startPersistence, preferenceCloseGuard } from "@/lib/persistence";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useShallow } from "zustand/react/shallow";
-import { startBackendSync } from "@/lib/integrations";
 import { syncGitCredentials } from "@/lib/hosting";
 import { onWatcherChange, releaseRepo } from "@/lib/repo";
 import { startUpdateChecks } from "@/lib/updates";
@@ -291,7 +290,6 @@ function useStartup() {
       // doesn't open each repository in turn and flash through them.
       const savedPaths = useStore.getState().settings.rememberTabs ? [...new Set(saved?.tabs ?? [])] : [];
       if (savedPaths.length) restoreTabs(savedPaths, saved?.active ?? 0);
-      startBackendSync();
       startPersistence();
       await getCurrentWindow().onCloseRequested(preferenceCloseGuard(
         () => getCurrentWindow().close(),

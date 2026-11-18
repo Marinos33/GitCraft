@@ -99,10 +99,9 @@ export const hosting = {
   template: (path: string) => invoke<string | null>("pr_template", { path }),
 };
 
-/** Hand the tokens of connected services to Git (called at start-up, after saving a token, and when the
- *  GitLab address changes). */
+/** Tell Git which hosts have a connected service (after saving a token). */
 export function syncGitCredentials() {
-  return invoke<void>("sync_git_credentials", { gitlabHost: gh() }).catch(() => undefined);
+  return invoke<void>("sync_git_credentials").catch(() => undefined);
 }
 
 /** "Start a pull request": push the branch if needed, then create the PR / MR. */

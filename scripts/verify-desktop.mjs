@@ -46,7 +46,7 @@ try{
  await send('Runtime.enable');await send('Page.enable');
  await until('window.__gitcraftVerification','isolated validation startup');
  await evaluate(`window.v=window.__gitcraftVerification; window.fixture=input.fixture; window.violations=[]; document.addEventListener('securitypolicyviolation',e=>violations.push({directive:e.violatedDirective,blocked:e.blockedURI})); v.store.getState().setSettings({authorInitials:true,autoUpdate:false,autoFetchMin:0,lazyLoad:false,initialCommits:2000});`,{fixture});
- await evaluate(`await v.invoke('set_runtime_settings',{settings:{gitPath:input.gitPath,sshUseAgent:true}});`,{gitPath:tools.git});
+ await evaluate(`await v.invoke('save_settings',{settings:{settings:{gitPath:input.gitPath,sshUseAgent:true}}});`,{gitPath:tools.git});
  report.accountAvailability=await evaluate(`return await v.invoke('desktop_validation_accounts');`);
  await check('O001 native 50000-commit loading',async()=>{
   const result=await evaluate(`const started=performance.now();await v.openRepoPath(fixture);window.path=v.store.getState().tabs.find(t=>t.id===v.store.getState().activeId).path;return {initialMs:performance.now()-started,commits:v.repoData(path).commits.length};`);
@@ -112,14 +112,14 @@ try{
  await check('O035 native superseded reads and closed tab cleanup',async()=>{
   const realGit=tools.git;const wrapper=join(run,'slow-git.cmd'), marker=join(run,'read-ready'),late=join(run,'read-late');
   writeFileSync(wrapper,`@echo off\r\nif "%~1"=="log" goto slow\r\nif "%~1"=="--literal-pathspecs" if "%~2"=="log" goto slow\r\n"${realGit}" %*\r\nexit /b %errorlevel%\r\n:slow\r\necho ready>"${marker}"\r\n"${tools.ping}" -n 31 127.0.0.1 >nul\r\necho leaked>"${late}"\r\n`);
-  await evaluate(`await v.invoke('set_runtime_settings',{settings:{gitPath:input.gitPath,sshUseAgent:true}});window.controllers=Array.from({length:12},()=>new AbortController());window.reads=controllers.map(c=>v.api.openRepo(path,500,undefined,c.signal).then(()=>({ok:true}),error=>({ok:false,error:String(error)})));`,{gitPath:wrapper});
+  await evaluate(`await v.invoke('save_settings',{settings:{settings:{gitPath:input.gitPath,sshUseAgent:true}}});window.controllers=Array.from({length:12},()=>new AbortController());window.reads=controllers.map(c=>v.api.openRepo(path,500,undefined,c.signal).then(()=>({ok:true}),error=>({ok:false,error:String(error)})));`,{gitPath:wrapper});
   for(let i=0;i<200&&!existsSync(marker);i++)await sleep(25);if(!existsSync(marker))throw new Error('Slow native Git helper did not start');
   const result=await evaluate(`const start=performance.now();controllers.forEach(c=>c.abort());const readsDone=await Promise.all(reads);return {cancelMs:performance.now()-start,rejected:readsDone.filter(r=>!r.ok).length};`);
   await until('(await v.invoke("desktop_validation_state")).read_slots===0','read slots released');
   await evaluate(`v.store.getState().setUi(tabId,{history:{file:'tracked.txt',mode:'history',sha:null}});`);await sleep(250);
   const close=await evaluate(`const start=performance.now();v.store.getState().closeTab(tabId);return {closedAt:start};`);await until('(await v.invoke("desktop_validation_state")).read_slots===0','closed tab read release');
   const closeMs=await evaluate(`return performance.now()-input.closedAt;`,{closedAt:close.closedAt});
-  await evaluate(`await v.invoke('set_runtime_settings',{settings:{gitPath:input.gitPath,sshUseAgent:true}});`,{gitPath:tools.git});
+  await evaluate(`await v.invoke('save_settings',{settings:{settings:{gitPath:input.gitPath,sshUseAgent:true}}});`,{gitPath:tools.git});
   if(existsSync(late))throw new Error('Cancelled helper survived to write');if(result.rejected!==12)throw new Error('A cancelled slow read succeeded');return {...result,closeMs};
  });
  const violations=await evaluate('return violations;');report.violations=violations;if(violations.length)throw new Error('Content-policy violations: '+JSON.stringify(violations));
