@@ -13,11 +13,12 @@ import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 
 import { conflictOutput, hasConflictMarkers, parseConflicts, type ConflictPick as Pick, type Segment } from "@/lib/conflict";
+import { useMetrics } from "@/lib/launch";
 export { parseConflicts } from "@/lib/conflict";
 
 /** Merge conflict tool: A (current) and B (incoming) on top, Output below. */
 export function ConflictView({ repo, tabId, file }: { repo: RepoView; tabId: string; file: string }) {
-  const s = useStore(useShallow((st) => ({ metrics: st.metrics, setDialog: st.setDialog, setUi: st.setUi, toast: st.toast })));
+  const s = { ...useStore(useShallow((st) => ({ setDialog: st.setDialog, setUi: st.setUi, toast: st.toast }))), metrics: useMetrics() };
   const m = s.metrics;
   const q = useQuery({ queryKey: ["conflict", repo.path, file, JSON.stringify(repo.status)], queryFn: ({ signal }) => api.conflictInfo(repo.path, file, signal) });
   const info = q.data;

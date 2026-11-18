@@ -1,5 +1,6 @@
 // The window state, built from slices (src/lib/store/slices): tabs, notifications, settings and the
-// session (dialogs, progress, launch information).
+// session (dialogs, busy note, palette). Data read from the Rust side lives in the react-query cache
+// (src/lib/query-client.ts), including launch options and job progress (src/lib/launch.ts).
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { createNoticesSlice, type NoticesSlice } from "./store/slices/notices";
@@ -44,14 +45,13 @@ export function useTabUi(id: string): TabUi {
 }
 const defaultUiConst = defaultUi();
 
-/** The whole store except the busy note, job progress and toasts. Those change several times during every
+/** The whole store except the busy note and toasts. Those change several times during every
  *  action; big panels (file lists, branch lists, diffs) use this so they don't re-render for them. */
 export function usePanelStore() {
   return useStore(
     useShallow((st: Store) => {
-      const { busy, job, toasts, ...rest } = st;
+      const { busy, toasts, ...rest } = st;
       void busy;
-      void job;
       void toasts;
       return rest;
     }),

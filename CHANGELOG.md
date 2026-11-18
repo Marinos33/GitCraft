@@ -29,6 +29,7 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 - New builds are published as pre-releases on the beta channel. Copies on the stable channel are updated only when a build is promoted to a full release.
 - The TypeScript types for calls between the window and the Rust side are now generated from the Rust definitions, and the test workflow fails when they are out of date.
 - For contributors: the Rust commands, the action engine, the dialogs and the window state are split into smaller files by area. GitCraft behaves the same.
+- For contributors: data reported by the Rust side at start-up (version, layout metrics, picture mode) and the progress of long Git jobs now live in the react-query cache with the other data read from Rust; the window store keeps only interface state.
 
 ### Fixed
 

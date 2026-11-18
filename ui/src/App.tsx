@@ -9,7 +9,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ChevronRight } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { DEFAULT_METRICS, DEFAULT_SETTINGS, newId, restoreTabs, tabUi, useStore, useTabUi, type Profile, type Settings, type Tab } from "@/lib/store";
+import { DEFAULT_SETTINGS, newId, restoreTabs, tabUi, useStore, useTabUi, type Profile, type Settings, type Tab } from "@/lib/store";
 import { act, openRepoPath, promptBranch, queryClient, refresh, repoData, useRepo } from "@/lib/repo";
 import { resetZoom, setZoom, stepZoom } from "@/lib/zoom";
 import { withSpin } from "@/lib/spin";
@@ -36,6 +36,7 @@ import { StatusBar } from "./components/StatusBar";
 import { LaunchpadScreen, StartScreen } from "./components/StartScreen";
 import { Dialogs } from "./components/Dialogs";
 import { Toasts } from "./components/Toasts";
+import { jobProgress, loadLaunchOptions, setJobProgress, useLaunchOptions } from "@/lib/launch";
 
 export default function App() {
   const s = useStore(useShallow((s) => ({ tabs: s.tabs, activeId: s.activeId })));
@@ -210,8 +211,7 @@ function useStartup() {
     if (done.current) return;
     done.current = true;
     (async () => {
-      const opts = await api.launchOptions().catch(() => ({ screenshot: false, shot_view: null as string | null, version: "0.1.0", metrics: DEFAULT_METRICS }));
-      useStore.setState({ screenshot: opts.screenshot, version: opts.version, metrics: opts.metrics });
+      const opts = await loadLaunchOptions();
       if (opts.screenshot) {
         if (opts.shot_view === "validation") {
           const verification = await import("@/lib/desktop-verification");
@@ -258,7 +258,7 @@ function useStartup() {
             await new Promise((r) => setTimeout(r, 2500));
           }
           else if (opts.shot_view === "rebase" && repo.commits.length > 4) {
-            await openRebase(tab.id, repo.path, repo.commits[4].sha, repo.commits[4].sha.slice(0, st.metrics.sha_len), (items) =>
+            await openRebase(tab.id, repo.path, repo.commits[4].sha, repo.commits[4].sha.slice(0, opts.metrics.sha_len), (items) =>
               items.map((it, i) => (i === 1 ? { ...it, action: "squash" } : i === 2 ? { ...it, action: "reword", message: it.message + " (reworded)" } : i === 3 ? { ...it, action: "drop" } : it)),
             );
           }
@@ -305,7 +305,7 @@ function useStartup() {
 
 /** Start only once the saved preference is known. Changing it starts or stops the schedule. */
 function useUpdateChecks(settingsLoaded: boolean) {
-  const screenshot = useStore((s) => s.screenshot);
+  const screenshot = useLaunchOptions().screenshot;
   const auto = useStore((s) => s.settings.autoUpdate);
   useEffect(() => (settingsLoaded && !screenshot && auto ? startUpdateChecks() : undefined), [settingsLoaded, screenshot, auto]);
 }
@@ -315,14 +315,14 @@ function useUpdateChecks(settingsLoaded: boolean) {
 function useAutoFetch() {
   const minutes = useStore((s) => s.settings.autoFetchMin);
   const prune = useStore((s) => s.settings.autoPrune);
-  const screenshot = useStore((s) => s.screenshot);
+  const screenshot = useLaunchOptions().screenshot;
   const warned = useRef(new Set<string>());
   useEffect(() => {
     if (!minutes || screenshot) return;
     let running = false;
     let cancelled = false;
     const id = window.setInterval(async () => {
-      if (running || cancelled || useStore.getState().busy || useStore.getState().job) return;
+      if (running || cancelled || useStore.getState().busy || jobProgress()) return;
       running = true;
       try {
       const paths = [...new Set(useStore.getState().tabs.filter((t) => t.kind === "repo" && t.path).map((t) => t.path!))];
@@ -358,7 +358,7 @@ function useWatchers() {
   useEffect(() => () => manager.current?.update([]), []);
   useEffect(() => {
     const un = listen<import("@/lib/api").JobProgress>("job-progress", (e) => {
-      useStore.setState({ job: e.payload.text ? e.payload : null });
+      setJobProgress(e.payload.text ? e.payload : null);
       if (e.payload.text) void api.acknowledgeJob(e.payload.id).catch(() => undefined);
     });
     return () => {

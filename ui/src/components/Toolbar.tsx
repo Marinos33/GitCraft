@@ -23,6 +23,7 @@ import { DropMenu, type MenuEntry } from "./ui/menu";
 import { addSubmodule, addWorktree, initGitflow, openCleanup } from "@/lib/manage";
 import { cn, MOD } from "@/lib/utils";
 import { SPIN_TURN_MS, useSpinning } from "@/lib/spin";
+import { useMetrics } from "@/lib/launch";
 
 const PULL_LABELS: Record<string, string> = {
   fetch: "Fetch All",
@@ -33,7 +34,7 @@ const PULL_LABELS: Record<string, string> = {
 
 /** The toolbar under the tabs: repository and branch pickers plus the main Git buttons. */
 export function Toolbar({ repo, tabId }: { repo: RepoView | undefined; tabId: string }) {
-  const s = useStore(useShallow((s) => ({ settings: s.settings, metrics: s.metrics, tabs: s.tabs, setActive: s.setActive, setDialog: s.setDialog, setSettings: s.setSettings, setUi: s.setUi })));
+  const s = { ...useStore(useShallow((s) => ({ settings: s.settings, tabs: s.tabs, setActive: s.setActive, setDialog: s.setDialog, setSettings: s.setSettings, setUi: s.setUi }))), metrics: useMetrics() };
   const path = repo?.path;
   const labels = s.settings.toolbarLabels;
   const locals = repo?.refs.filter((r) => r.kind === "Local") ?? [];

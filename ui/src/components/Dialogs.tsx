@@ -1,3 +1,4 @@
+import { launchOptions } from "@/lib/launch";
 import { PreferencesScreen } from "./prefs/Preferences";
 import { RepoManagementDialog } from "./RepoManagement";
 import { AddRemoteDialog } from "./AddRemoteDialog";
@@ -70,7 +71,7 @@ export function Dialogs() {
           <div className="flex flex-col items-center gap-2 py-2">
             <AppMark size={48} />
             <div className="text-[18px] font-bold text-white">GitCraft</div>
-            <div className="text-fg2 text-[12.5px]">Version {useStore.getState().version} · Stage 6</div>
+            <div className="text-fg2 text-[12.5px]">Version {launchOptions().version} · Stage 6</div>
             <div className="text-fg3 text-[12px] text-center mt-2">A graphical Git client built with Tauri, Rust and React. Every action runs the real Git command line.</div>
           </div>
         </Dialog>

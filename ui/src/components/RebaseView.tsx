@@ -7,6 +7,7 @@ import { runPlan } from "@/lib/rewrite";
 import { Button } from "./ui/button";
 import { Avatar } from "./Icons";
 import { cn } from "@/lib/utils";
+import { useMetrics } from "@/lib/launch";
 
 const STEPS: { step: Step; label: string; key: string; color: string }[] = [
   { step: "pick", label: "Pick", key: "P", color: "#5cb85c" },
@@ -18,7 +19,7 @@ const STEPS: { step: Step; label: string; key: string; color: string }[] = [
 /** Interactive Rebase / Interactive Cherry Pick, opened in the centre.
  *  Newest commit at the top. Keys: P / R / S / D set the action, ↑ ↓ select, Ctrl+↑ ↓ move. */
 export function RebaseView({ tabId, path, plan }: { tabId: string; path: string; plan: RebasePlan }) {
-  const s = useStore(useShallow((st) => ({ metrics: st.metrics, setUi: st.setUi })));
+  const s = { ...useStore(useShallow((st) => ({ setUi: st.setUi }))), metrics: useMetrics() };
   const n = s.metrics.sha_len;
   const [sel, setSel] = useState(0);
   const [editing, setEditing] = useState<number | null>(null);

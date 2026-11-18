@@ -8,6 +8,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { create } from "zustand";
 import { fromNow } from "./relative-time";
 import { useStore } from "./store";
+import { launchOptions } from "./launch";
 
 /** An update offered by the Rust side (`update_check`). */
 export interface OfferedUpdate { version: string; notes: string; channel: "stable" | "beta" }
@@ -47,7 +48,7 @@ async function configured() {
 export async function checkForUpdates(manual: boolean) {
   const st = useStore.getState();
   // A downloaded update is kept until restart, even if a scheduled check comes due.
-  if (busy || st.screenshot || (!manual && !st.settings.autoUpdate) || useUpdates.getState().phase === "ready") return;
+  if (busy || launchOptions().screenshot || (!manual && !st.settings.autoUpdate) || useUpdates.getState().phase === "ready") return;
   busy = true;
   const { phase: previousPhase, error: previousError } = useUpdates.getState();
   useUpdates.setState({ phase: "checking", error: null });
@@ -69,7 +70,7 @@ export async function checkForUpdates(manual: boolean) {
     offered = u;
     if (!u) {
       useUpdates.setState({ phase: "none", version: null, notes: "", percent: null, lastChecked: Date.now(), errorAt: null });
-      if (manual) st.toast(true, `GitCraft ${st.version} is the newest version.`);
+      if (manual) st.toast(true, `GitCraft ${launchOptions().version} is the newest version.`);
       return;
     }
     useUpdates.setState({ phase: "available", version: u.version, notes: u.notes, percent: null, errorAt: null });
@@ -125,8 +126,8 @@ export async function installAndRestart() {
 
 /** Start the background schedule (called once from the app shell). */
 export function startUpdateChecks() {
-  const { screenshot, settings } = useStore.getState();
-  if (screenshot || !settings.autoUpdate) return () => {};
+  const { settings } = useStore.getState();
+  if (launchOptions().screenshot || !settings.autoUpdate) return () => {};
   const first = setTimeout(() => void checkForUpdates(false), 0);
   const every = setInterval(() => void checkForUpdates(false), CHECK_EVERY_MS);
   return () => {

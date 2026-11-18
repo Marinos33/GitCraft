@@ -9,9 +9,10 @@ import { api } from "@/lib/api";
 import { resetZoom } from "@/lib/zoom";
 import { installAndRestart, RELEASES_URL, useUpdates } from "@/lib/updates";
 import { useSignedInServices } from "@/lib/integrations";
+import { useJobProgress, useLaunchOptions } from "@/lib/launch";
 
 export function StatusBar() {
-  const s = useStore(useShallow((s) => ({ tabs: s.tabs, activeId: s.activeId, settings: s.settings, busy: s.busy, job: s.job, openLaunchpad: s.openLaunchpad, setDialog: s.setDialog, version: s.version })));
+  const s = { ...useStore(useShallow((s) => ({ tabs: s.tabs, activeId: s.activeId, settings: s.settings, busy: s.busy, openLaunchpad: s.openLaunchpad, setDialog: s.setDialog }))), job: useJobProgress(), version: useLaunchOptions().version };
   const up = useUpdates();
   const signedIn = useSignedInServices();
   const tab = s.tabs.find((t) => t.id === s.activeId);

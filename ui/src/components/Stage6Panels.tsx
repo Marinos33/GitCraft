@@ -14,6 +14,7 @@ import { cn, timeSince } from "@/lib/utils";
 import { CtxMenu, DropMenu } from "./ui/menu";
 import { AGENT_LABEL, AGENT_COMMAND, agentConnection, agentLaunch, sameFolder, folderKey } from "@/lib/agents";
 import { workingChanges } from "@/lib/working-changes";
+import { useMetrics } from "@/lib/launch";
 
 export function useConflictCheck(repo: RepoView | undefined) {
   const global = useStore((s) => s.settings.conflictDetection !== false);
@@ -200,7 +201,7 @@ function AgentWorktree({ worktree: w, repo, tabId, sessions, filter }: { worktre
   const shown = expanded || filter.trim() ? matching : matching.slice(0, 5);
   const status = current ? repo.status : q.data;
   const counts = status ? workingChanges(status) : null;
-  const units = useStore((s) => s.metrics.time_units);
+  const units = useMetrics().time_units;
   const agent = useStore((s) => s.settings.codingAgent);
   const open = () => {
     if (!current) return openRepoPath(w.path);

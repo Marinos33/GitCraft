@@ -1,0 +1,49 @@
+// What the Rust side reports once at start-up (launch_options) and the progress of long Git jobs
+// ("job-progress" events). Both come from the back end, so they live in the react-query cache,
+// not in the window's zustand store.
+import { useQuery } from "@tanstack/react-query";
+import { api, type JobProgress, type Metrics } from "./api";
+import { queryClient } from "./query-client";
+import { DEFAULT_METRICS } from "./store";
+
+export interface LaunchOptions { screenshot: boolean; shot_view: string | null; version: string; metrics: Metrics }
+
+const LAUNCH_KEY = ["launchOptions"] as const;
+const JOB_KEY = ["jobProgress"] as const;
+export const DEFAULT_LAUNCH: LaunchOptions = { screenshot: false, shot_view: null, version: "0.1.0", metrics: DEFAULT_METRICS };
+
+const readLaunch = async () => (await api.launchOptions().catch(() => null)) ?? DEFAULT_LAUNCH;
+
+/** Read the launch options once (start-up). They do not change while GitCraft runs. */
+export function loadLaunchOptions(): Promise<LaunchOptions> {
+  return queryClient.fetchQuery({ queryKey: LAUNCH_KEY, queryFn: readLaunch, staleTime: Infinity, gcTime: Infinity });
+}
+
+/** The launch options outside React (defaults until start-up has read them). */
+export function launchOptions(): LaunchOptions {
+  return queryClient.getQueryData<LaunchOptions>(LAUNCH_KEY) ?? DEFAULT_LAUNCH;
+}
+
+export const launchMetrics = (): Metrics => launchOptions().metrics;
+
+/** The launch options in a component; start-up fills the cache, so this never starts a request. */
+export function useLaunchOptions(): LaunchOptions {
+  return useQuery({ queryKey: LAUNCH_KEY, queryFn: readLaunch, enabled: false, staleTime: Infinity, gcTime: Infinity }).data ?? DEFAULT_LAUNCH;
+}
+
+export const useMetrics = (): Metrics => useLaunchOptions().metrics;
+
+/** Record the latest "job-progress" event (null when the job ended). */
+export function setJobProgress(progress: JobProgress | null) {
+  queryClient.setQueryData(JOB_KEY, progress);
+}
+
+/** The running clone / fetch / pull / push with its latest progress line. */
+export function useJobProgress(): JobProgress | null {
+  return useQuery<JobProgress | null>({ queryKey: JOB_KEY, queryFn: () => null, enabled: false, staleTime: Infinity, gcTime: Infinity }).data ?? null;
+}
+
+/** The running job outside React. */
+export function jobProgress(): JobProgress | null {
+  return queryClient.getQueryData<JobProgress | null>(JOB_KEY) ?? null;
+}

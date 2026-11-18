@@ -10,9 +10,10 @@ import { useStore } from "@/lib/store";
 import { Avatar } from "./Icons";
 import { MonacoDiff } from "./LazyEditors";
 import { cn, fullDate, GRAPH_COLORS, timeSince } from "@/lib/utils";
+import { useMetrics } from "@/lib/launch";
 
 function Since({ time }: { time: number }) {
-  const units = useStore((s) => s.metrics.time_units);
+  const units = useMetrics().time_units;
   const t = timeSince(time, units);
   return (
     <span style={{ color: t.color }} title={fullDate(time)}>
@@ -23,7 +24,7 @@ function Since({ time }: { time: number }) {
 
 /** File History and Blame for one file (opened from a file's menu or Ctrl+Shift+H). */
 export function HistoryView({ repo, tabId, file, mode, sha }: { repo: RepoView; tabId: string; file: string; mode: "history" | "blame"; sha: string | null }) {
-  const s = useStore(useShallow((st) => ({ metrics: st.metrics, setUi: st.setUi, toast: st.toast })));
+  const s = { ...useStore(useShallow((st) => ({ setUi: st.setUi, toast: st.toast }))), metrics: useMetrics() };
   const m = s.metrics;
   const hist = useQuery({ queryKey: ["history", repo.path, file], queryFn: ({ signal }) => api.fileHistory(repo.path, file, signal) });
   const entries = hist.data ?? [];
@@ -138,7 +139,7 @@ function HistoryDiff({ repo, file, sha, parent, onGraph }: { repo: RepoView; fil
 
 /** Blame: each run of lines from the same commit gets a coloured bar and its author, date and sha. */
 function Blame({ repo, file, rev, onPick }: { repo: RepoView; file: string; rev: string | null; onPick: (sha: string) => void }) {
-  const m = useStore((s) => s.metrics);
+  const m = useMetrics();
   const wrap = useStore((s) => s.settings.wordWrap);
   const q = useQuery({ queryKey: ["blame", repo.path, file, rev], queryFn: ({ signal }) => api.blame(repo.path, file, rev, signal) });
   const [hover, setHover] = useState<string | null>(null);

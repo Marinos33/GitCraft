@@ -11,6 +11,7 @@ import { openRepoPath } from "@/lib/repo";
 import { openWorkspace } from "@/lib/prefs";
 import { MOD } from "@/lib/utils";
 import { RELEASES_URL } from "@/lib/updates";
+import { useMetrics } from "@/lib/launch";
 
 /** "New Tab" screen: Repositories (Open / Clone / Create, search, Recent)
  *  on the left and integrations / resources on the right. */
@@ -148,7 +149,7 @@ function BigButton({ icon, label, title, onClick }: { icon: React.ReactNode; lab
 
 /** Launchpad: open pull requests and issues that involve you, across connected services. */
 export function LaunchpadScreen() {
-  const s = { ...useStore(useShallow((st) => ({ metrics: st.metrics, setDialog: st.setDialog }))), settings: useStore(useShallow((st) => ({ gitlabHost: st.settings.gitlabHost }))) };
+  const s = { metrics: useMetrics(), ...useStore(useShallow((st) => ({ setDialog: st.setDialog }))), settings: useStore(useShallow((st) => ({ gitlabHost: st.settings.gitlabHost }))) };
   const units = s.metrics.time_units;
   const q = useLaunchpad();
 
