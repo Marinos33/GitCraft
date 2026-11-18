@@ -18,6 +18,8 @@ export async function flushPersistence() {
     dirty = false;
     const next = writes.catch(() => undefined).then(() => api.saveSettings(value));
     writes = next.then(() => undefined);
+    // The failure is reported by `await next` below; mark the chained copy as handled too.
+    writes.catch(() => undefined);
     let restored: Record<string, unknown> | null | undefined;
     try { restored = await next; } catch (error) { dirty = true; throw error; }
     // Commands that were not approved keep their previous values; show those again.
