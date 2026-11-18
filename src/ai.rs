@@ -216,12 +216,9 @@ fn ask(feature: &str, system: &str, prompt: String, effort: &str, schema: Value)
         "output_config": { "effort": effort, "format": { "type": "json_schema", "schema": schema } },
         "fallbacks": "default",
     });
-    let res = ureq::post(&url)
-        .set("x-api-key", key.as_deref().unwrap_or_default())
-        .set("anthropic-version", API_VERSION)
-        .set("anthropic-beta", FALLBACK_BETA)
-        .set("content-type", "application/json")
-        .timeout(std::time::Duration::from_secs(300)).send_json(body);
+    let key = key.as_deref().unwrap_or_default();
+    let headers = [("x-api-key", key), ("anthropic-version", API_VERSION), ("anthropic-beta", FALLBACK_BETA)];
+    let res = post_json(&url, &headers, &body);
     let v = read_response(res, &c.provider)?;
     match v["stop_reason"].as_str() {
         Some("refusal") => return Err("The model declined this request.".into()),
@@ -238,17 +235,31 @@ fn error_message(v: &Value) -> &str {
         .or(v[0]["error"]["message"].as_str()).or(v["message"].as_str()).unwrap_or("request failed")
 }
 
-fn read_response(res: Result<ureq::Response, ureq::Error>, provider: &str) -> Result<Value, String> {
+/// An HTTP answer from a provider: status and parsed JSON body (`Null` when unreadable).
+type Reply = Result<(u16, Value), crate::net::Error>;
+
+/// POST a JSON body to an AI endpoint. Credentials stay on the chosen endpoint: redirects are
+/// reported, never followed.
+fn post_json(url: &str, headers: &[(&str, &str)], body: &Value) -> Reply {
+    let mut request = crate::net::client().post(url).json(body);
+    for (name, value) in headers.iter().filter(|(_, v)| !v.is_empty()) { request = request.header(*name, *value); }
+    let limits = crate::net::Limits { timeout: std::time::Duration::from_secs(300), max_bytes: 32 * 1024 * 1024, slots: None };
+    let response = crate::net::send(request, limits, &crate::net::never_cancelled)?;
+    let value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    Ok((response.status, value))
+}
+
+fn read_response(res: Reply, provider: &str) -> Result<Value, String> {
     match res {
-        Ok(r) => r.into_json().map_err(|_| format!("{} returned an invalid API response.", provider_label(provider))),
-        Err(ureq::Error::Status(code, r)) => {
-            let v: Value = r.into_json().unwrap_or(Value::Null);
-            Err(match code {
-                401 | 403 => format!("{} rejected access. Check the API key and endpoint in Preferences > AI.", provider_label(provider)),
-                429 => format!("{} is busy or its rate limit was reached. Try again shortly.", provider_label(provider)),
-                _ => format!("{} error {code}: {}", provider_label(provider), error_message(&v)),
-            })
-        }
+        Ok((200..=299, Value::Null)) => Err(format!("{} returned an invalid API response.", provider_label(provider))),
+        Ok((200..=299, v)) => Ok(v),
+        Ok((300..=399, _)) => Err(format!("{} redirected this request. Set the endpoint to the final address in Preferences > AI.", provider_label(provider))),
+        Ok((code, v)) => Err(match code {
+            401 | 403 => format!("{} rejected access. Check the API key and endpoint in Preferences > AI.", provider_label(provider)),
+            429 => format!("{} is busy or its rate limit was reached. Try again shortly.", provider_label(provider)),
+            _ => format!("{} error {code}: {}", provider_label(provider), error_message(&v)),
+        }),
+        Err(crate::net::Error::TimedOut) => Err(format!("{} did not answer in time. Try again with fewer changes.", provider_label(provider))),
         Err(_) => Err(format!("Could not reach {}. Check that the server is running and the endpoint is correct in Preferences > AI.", provider_label(provider))),
     }
 }
@@ -281,14 +292,11 @@ fn ask_openai_style(c: &AiConfig, url: &str, model: &str, key: Option<&str>, sys
         } else if *mode == "json_object" {
             body["response_format"] = json!({ "type": "json_object" });
         }
-        let mut req = ureq::post(url).set("content-type", "application/json").timeout(std::time::Duration::from_secs(300));
-        if let Some(k) = key.filter(|s| !s.is_empty()) { req = req.set("Authorization", &format!("Bearer {k}")); }
-        let res = match req.send_json(body) {
-            Err(ureq::Error::Status(code, r)) if index + 1 < modes.len() => {
-                let status = r.status_text().to_string();
-                let v: Value = r.into_json().unwrap_or(Value::Null);
+        let auth = key.filter(|s| !s.is_empty()).map(|k| format!("Bearer {k}")).unwrap_or_default();
+        let res = match post_json(url, &[("Authorization", &auth)], &body) {
+            Ok((code, v)) if index + 1 < modes.len() && code >= 400 => {
                 if unsupported_format(code, &v) { continue; }
-                return Err(format!("{} error {code}: {}", provider_label(&c.provider), v.as_object().map(|_| error_message(&v)).unwrap_or(&status)));
+                return read_response(Ok((code, v)), &c.provider);
             }
             other => other,
         };

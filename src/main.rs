@@ -24,6 +24,7 @@ mod publishing;
 mod manage;
 mod rewrite;
 mod metrics;
+mod net;
 mod sample;
 mod shell;
 mod shot;

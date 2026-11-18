@@ -15,6 +15,10 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 
 - Join the GitCraft community from the Help menu.
 
+### Changed
+
+- AI providers, model lists and hosting services now share one network connection setup. AI requests no longer follow redirects, so an API key is never sent on to another address; update the endpoint if the provider reports a redirect.
+
 ### Fixed
 
 - Release notes list only changes since the previous published version, even when several releases are queued before the changelog is archived.

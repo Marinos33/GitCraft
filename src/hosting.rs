@@ -176,14 +176,8 @@ fn http_page_request(method: &str, url: &str, auth: &Auth, body: Option<Value>) 
         Auth::Query(k, t) => format!("{url}{}key={}&token={}", if url.contains('?') { "&" } else { "?" }, crate::hosting_api::q(k), crate::hosting_api::q(t)),
         _ => url.to_string(),
     };
-    static TRANSPORT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     static SLOTS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
-    let agent = TRANSPORT.get_or_init(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("HTTP transport")
-    });
-    let mut request = agent.request(method.parse().map_err(|_| "Invalid HTTP method")?, &url)
-        .header("User-Agent", "GitCraft").timeout(std::time::Duration::from_secs(30));
+    let mut request = crate::net::client().request(method.parse().map_err(|_| "Invalid HTTP method")?, &url);
     request = match auth {
         Auth::Bearer(token) => request.bearer_auth(token),
         Auth::Header(name, token) => request.header(*name, token),
@@ -194,40 +188,29 @@ fn http_page_request(method: &str, url: &str, auth: &Auth, body: Option<Value>) 
         request.header("Accept", "application/vnd.github+json").header("X-GitHub-Api-Version", "2022-11-28")
     } else { request.header("Accept", "application/json") };
     if let Some(body) = body { request = request.json(&body); }
-    // Dropping the async request interrupts connect/header/body waits. No detached
-    // per-request thread remains alive after its consumer cancels.
-    tauri::async_runtime::block_on(async {
-        let mut operation = Box::pin(async {
-            let _slot = SLOTS.get_or_init(|| tokio::sync::Semaphore::new(8)).acquire().await.map_err(|_| "HTTP scheduler closed".to_string())?;
-            let mut response = request.send().await.map_err(|_| "Could not contact the hosting service. Check its address and connection.".to_string())?;
-            let status = response.status().as_u16();
-            if (300..400).contains(&status) { return Err("The hosting service redirected this authenticated request. Update its configured address; credentials were not forwarded.".into()); }
-            let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
-            let link = header("Link"); let next_page = header("X-Next-Page"); let continuation = header("X-MS-ContinuationToken");
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await.map_err(|_| "Could not read the hosting response.".to_string())? {
-                if bytes.len() + chunk.len() > 10 * 1024 * 1024 { return Err("The hosting response exceeded its 10 MB budget; narrow the query.".into()); }
-                bytes.extend_from_slice(&chunk);
-            }
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            let value = if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text.clone())) };
-            if status >= 400 {
-                let message = value["message"].as_str().or(value["error"]["message"].as_str()).or(value["errorMessages"][0].as_str()).or(value["errors"][0]["message"].as_str()).unwrap_or(&text);
-                let hint = match status { 401 => " - the token was not accepted; reconnect in Preferences > Integrations", 403 => " - the token may be missing a permission", _ => "" };
-                return Err(format!("{status}: {}{hint}", message.chars().take(300).collect::<String>()));
-            }
-            Ok(HttpPage { value, link, next_page, continuation })
-        });
-        let started = std::time::Instant::now();
-        loop {
-            crate::read_jobs::check_context(&context)?;
-            if started.elapsed() >= std::time::Duration::from_secs(30) { return Err("The hosting request timed out.".into()); }
-            match tokio::time::timeout(std::time::Duration::from_millis(20), &mut operation).await {
-                Ok(result) => return result,
-                Err(_) => continue,
-            }
-        }
-    })
+    let limits = crate::net::Limits {
+        timeout: std::time::Duration::from_secs(30),
+        max_bytes: 10 * 1024 * 1024,
+        slots: Some(SLOTS.get_or_init(|| tokio::sync::Semaphore::new(8))),
+    };
+    let response = crate::net::send(request, limits, &|| crate::read_jobs::check_context(&context)).map_err(|error| match error {
+        crate::net::Error::Unreachable => "Could not contact the hosting service. Check its address and connection.".to_string(),
+        crate::net::Error::Unreadable => "Could not read the hosting response.".to_string(),
+        crate::net::Error::TooLarge => "The hosting response exceeded its 10 MB budget; narrow the query.".to_string(),
+        crate::net::Error::TimedOut => "The hosting request timed out.".to_string(),
+        crate::net::Error::Cancelled(message) => message,
+    })?;
+    let status = response.status;
+    if response.is_redirect() { return Err("The hosting service redirected this authenticated request. Update its configured address; credentials were not forwarded.".into()); }
+    let link = response.header("Link"); let next_page = response.header("X-Next-Page"); let continuation = response.header("X-MS-ContinuationToken");
+    let text = response.text();
+    let value = if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text.clone())) };
+    if status >= 400 {
+        let message = value["message"].as_str().or(value["error"]["message"].as_str()).or(value["errorMessages"][0].as_str()).or(value["errors"][0]["message"].as_str()).unwrap_or(&text);
+        let hint = match status { 401 => " - the token was not accepted; reconnect in Preferences > Integrations", 403 => " - the token may be missing a permission", _ => "" };
+        return Err(format!("{status}: {}{hint}", message.chars().take(300).collect::<String>()));
+    }
+    Ok(HttpPage { value, link, next_page, continuation })
 }
 
 fn s(v: &Value) -> String {
