@@ -190,7 +190,7 @@ pub fn subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
     let mut i = 0;
     while i < args.len() {
         let a = args[i];
-        if a == "-c" || a == "-C" || a == "--git-dir" || a == "--work-tree" || a == "--namespace" {
+        if matches!(a, "-c" | "-C" | "--git-dir" | "--work-tree" | "--namespace" | "--config-env" | "--super-prefix" | "--attr-source") {
             i += 2;
             continue;
         }
@@ -208,15 +208,32 @@ pub fn subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
 const CREDENTIAL_VERBS: &[&str] = &[
     "fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "lfs",
     "checkout", "switch", "reset", "restore", "merge", "rebase", "cherry-pick", "revert", "stash", "worktree",
+    "sparse-checkout",
 ];
 
 pub fn needs_credentials(args: &[&str]) -> bool {
     subcommand(args).is_some_and(|verb| CREDENTIAL_VERBS.contains(&verb))
 }
 
+/// Whether the repository containing `dir` is a partial clone (for example `--filter blob:none`).
+/// Any command may then fetch missing objects from the promisor remote, so all of them need credentials.
+fn is_partial_clone(dir: &Path) -> bool {
+    let Some(dot_git) = dir.ancestors().map(|d| d.join(".git")).find(|p| p.exists()) else { return false };
+    let mut git_dir = dot_git.clone();
+    if dot_git.is_file() {
+        // Worktrees and submodules: ".git" is a file pointing at the real Git folder.
+        let Some(target) = std::fs::read_to_string(&dot_git).ok().and_then(|s| s.trim().strip_prefix("gitdir:").map(|p| p.trim().to_string())) else { return false };
+        git_dir = dot_git.parent().unwrap_or(dir).join(target);
+        if let Ok(common) = std::fs::read_to_string(git_dir.join("commondir")) {
+            git_dir = git_dir.join(common.trim());
+        }
+    }
+    std::fs::read_to_string(git_dir.join("config")).is_ok_and(|config| config.to_ascii_lowercase().contains("partialclone"))
+}
+
 /// Give Git the connected services' credentials, only when `args` is a command that can need them.
 pub fn add_credentials(c: &mut Command, args: &[&str]) {
-    if !needs_credentials(args) {
+    if !needs_credentials(args) && !c.get_current_dir().is_some_and(is_partial_clone) {
         return;
     }
     if let Ok(t) = HOST_TOKENS.read() {
@@ -969,6 +986,8 @@ mod credential_scope_tests {
         assert_eq!(subcommand(&["--literal-pathspecs", "-c", "diff.noprefix=false", "diff", "--"]), Some("diff"));
         assert_eq!(subcommand(&["-C", "/tmp/repo", "fetch", "origin"]), Some("fetch"));
         assert_eq!(subcommand(&["--version"]), None);
+        assert_eq!(subcommand(&["--config-env", "http.extraHeader=AUTH", "fetch"]), Some("fetch"));
+        assert!(needs_credentials(&["sparse-checkout", "set", "--no-cone", "--", "/a"]));
     }
 
     #[test]
@@ -983,13 +1002,29 @@ mod credential_scope_tests {
 
     #[test]
     fn read_commands_do_not_inherit_tokens() {
+        /// Puts the previous process-wide tokens back even if an assertion fails.
+        struct Restore(Vec<(String, String, String)>);
+        impl Drop for Restore {
+            fn drop(&mut self) { set_host_tokens(std::mem::take(&mut self.0)); }
+        }
+        let _restore = Restore(HOST_TOKENS.read().map(|t| t.clone()).unwrap_or_default());
         set_host_tokens(vec![("scope.invalid".into(), "user".into(), "scope-secret".into())]);
-        let mut read = git_cmd(Path::new("."));
+        let has_token = |c: &Command| c.get_envs().any(|(k, v)| k.to_string_lossy() == "GITCRAFT_TOKEN_0" && v.is_some_and(|v| v == "scope-secret"));
+        let plain = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(plain.path().join(".git")).unwrap();
+        std::fs::write(plain.path().join(".git/config"), "[core]\n\tbare = false\n").unwrap();
+        let mut read = git_cmd(plain.path());
         add_credentials(&mut read, &["status"]);
-        assert!(!read.get_envs().any(|(k, _)| k.to_string_lossy().starts_with("GITCRAFT_TOKEN_")));
-        let mut fetch = git_cmd(Path::new("."));
+        assert!(!has_token(&read));
+        let mut fetch = git_cmd(plain.path());
         add_credentials(&mut fetch, &["fetch"]);
-        assert!(fetch.get_envs().any(|(k, v)| k.to_string_lossy() == "GITCRAFT_TOKEN_0" && v.is_some_and(|v| v == "scope-secret")));
-        set_host_tokens(Vec::new());
+        assert!(has_token(&fetch));
+        // A partial clone fetches missing objects on demand, so even reads get credentials.
+        let partial = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(partial.path().join(".git")).unwrap();
+        std::fs::write(partial.path().join(".git/config"), "[remote \"origin\"]\n\tpromisor = true\n\tpartialclonefilter = blob:none\n").unwrap();
+        let mut diff = git_cmd(&partial.path().join("src"));
+        add_credentials(&mut diff, &["diff", "HEAD~1"]);
+        assert!(has_token(&diff));
     }
 }

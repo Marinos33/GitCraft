@@ -886,10 +886,14 @@ fn clone_args(o: &CloneOptions) -> Result<Vec<String>, String> {
 }
 
 /// The folder a clone goes into: the URL's last segment without `.git`, refused when it is not a
-/// plain folder name (empty, `.`, `..`, or containing characters that are invalid in a file name).
+/// plain folder name (empty, `.`, `..`, characters that are invalid in a file name, a trailing dot,
+/// or a Windows device name such as CON or COM1).
 fn clone_folder_name(url: &str) -> Result<String, String> {
+    const DEVICES: &[&str] = &["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
     let name = url.trim_end_matches(['/', '\\']).rsplit(['/', '\\', ':']).next().unwrap_or("").trim_end_matches(".git").trim();
-    let invalid = name.is_empty() || name == "." || name == ".." || name.chars().any(|c| c.is_control() || "<>:\"|?*".contains(c));
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    let invalid = name.is_empty() || name.ends_with('.') || DEVICES.contains(&stem.as_str())
+        || name.chars().any(|c| c.is_control() || "<>:\"|?*".contains(c));
     if invalid {
         return Err("GitCraft could not choose a folder name from this URL.".into());
     }
@@ -904,7 +908,7 @@ async fn clone_repo(url: String, parent: String, options: Option<CloneOptions>, 
     blocking(move || {
         let opts = options.unwrap_or_default();
         let url = url.trim().to_string();
-        if url.is_empty() || url.starts_with('-') {
+        if url.is_empty() {
             return Err("Enter a repository URL or path.".into());
         }
         let name = clone_folder_name(&url)?;
@@ -1295,7 +1299,7 @@ mod clone_tests {
         assert_eq!(clone_folder_name("https://github.com/a/repo.git").unwrap(), "repo");
         assert_eq!(clone_folder_name("git@github.com:a/repo.git/").unwrap(), "repo");
         assert_eq!(clone_folder_name(r"C:\src\local").unwrap(), "local");
-        for url in ["https://example.com/a/..", "https://example.com/.", ".git", "https://example.com/a|b"] {
+        for url in ["https://example.com/a/..", "https://example.com/.", ".git", "https://example.com/a|b", "https://host/team/con.git", "https://host/team/Com1.txt", "https://host/team/repo."] {
             assert!(clone_folder_name(url).is_err(), "{url}");
         }
     }

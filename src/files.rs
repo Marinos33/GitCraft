@@ -383,6 +383,10 @@ pub fn save_target(dir: &Path, file: &str) -> Result<std::path::PathBuf, String>
     let resolved = loop {
         match std::fs::canonicalize(probe) {
             Ok(path) => break path,
+            // A link that exists but cannot be resolved (dangling) could still be followed by the write.
+            Err(_) if std::fs::symlink_metadata(probe).is_ok() => {
+                return Err(format!("\"{file}\" goes through a link whose target cannot be resolved; it was not saved."))
+            }
             Err(_) => probe = probe.parent().ok_or_else(|| format!("\"{file}\" is not a file in this repository"))?,
         }
     };
@@ -393,9 +397,9 @@ pub fn save_target(dir: &Path, file: &str) -> Result<std::path::PathBuf, String>
 }
 
 pub fn save_checked_mode(dir: &Path, file: &str, content: &str, expected: Option<&str>, utf8: bool) -> Result<(), String> {
-    save_target(dir, file)?;
+    let p = save_target(dir, file)?;
     if let Some(expected) = expected {
-        let current = match std::fs::read(dir.join(file)) {
+        let current = match std::fs::read(&p) {
             Ok(bytes) => Some(bytes),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.to_string()),
@@ -404,11 +408,11 @@ pub fn save_checked_mode(dir: &Path, file: &str, content: &str, expected: Option
             return Err("The file changed outside this editor. Your draft was kept; reopen the file and compare before saving.".into());
         }
     }
-    save_mode(dir, file, content, utf8)
+    save_mode(dir, &p, content, utf8)
 }
 
-fn save_mode(dir: &Path, file: &str, content: &str, utf8: bool) -> Result<(), String> {
-    let p = save_target(dir, file)?;
+/// Writes `p`, a path already checked by `save_target`.
+fn save_mode(dir: &Path, p: &Path, content: &str, utf8: bool) -> Result<(), String> {
     // Keep the file's existing line endings.
     let before = match std::fs::read(&p) {
         Ok(bytes)=>bytes,Err(error) if error.kind()==std::io::ErrorKind::NotFound=>Vec::new(),Err(error)=>return Err(error.to_string()),
@@ -917,6 +921,9 @@ mod save_boundary_tests {
         assert!(save_checked_mode(&repo, "dirlink/new", "changed", None, false).is_err());
         assert_eq!(std::fs::read_to_string(outside_dir.join("secret")).unwrap(), "kept");
         assert!(!outside_dir.join("new").exists());
+        std::os::unix::fs::symlink(outside_dir.join("not-yet"), repo.join("dangling")).unwrap();
+        assert!(save_checked_mode(&repo, "dangling", "changed", None, false).is_err());
+        assert!(!outside_dir.join("not-yet").exists());
         std::fs::write(repo.join("real"), "old").unwrap();
         std::os::unix::fs::symlink(repo.join("real"), repo.join("inner")).unwrap();
         save_checked_mode(&repo, "inner", "new", None, false).unwrap();
