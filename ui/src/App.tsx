@@ -34,7 +34,8 @@ import { LeftStrip } from "./components/LeftPanel";
 import { RightPanel } from "./components/RightPanel";
 import { StatusBar } from "./components/StatusBar";
 import { LaunchpadScreen, StartScreen } from "./components/StartScreen";
-import { Dialogs, Toasts } from "./components/Dialogs";
+import { Dialogs } from "./components/Dialogs";
+import { Toasts } from "./components/Toasts";
 
 export default function App() {
   const s = useStore(useShallow((s) => ({ tabs: s.tabs, activeId: s.activeId })));

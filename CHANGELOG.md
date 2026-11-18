@@ -28,6 +28,7 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 - Creating or copying a GPG key uses the GPG program set in Git's configuration.
 - New builds are published as pre-releases on the beta channel. Copies on the stable channel are updated only when a build is promoted to a full release.
 - The TypeScript types for calls between the window and the Rust side are now generated from the Rust definitions, and the test workflow fails when they are out of date.
+- For contributors: the Rust commands, the action engine, the dialogs and the window state are split into smaller files by area. GitCraft behaves the same.
 
 ### Fixed
 
