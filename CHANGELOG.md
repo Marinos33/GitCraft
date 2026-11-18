@@ -27,6 +27,7 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 - GitCraft now reads the Git executable, SSH key, logging, encoding, integration and AI preferences from its saved settings file at start-up and after each change, instead of receiving them separately from the window. A connection test or model list saves pending preference edits first.
 - Creating or copying a GPG key uses the GPG program set in Git's configuration.
 - New builds are published as pre-releases on the beta channel. Copies on the stable channel are updated only when a build is promoted to a full release.
+- The TypeScript types for calls between the window and the Rust side are now generated from the Rust definitions, and the test workflow fails when they are out of date.
 
 ### Fixed
 

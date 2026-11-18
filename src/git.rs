@@ -9,6 +9,8 @@ use std::process::Command;
 use std::os::windows::process::CommandExt;
 
 #[derive(Clone, Debug, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Commit {
     pub sha: String,
     pub parents: Vec<String>,
@@ -20,6 +22,8 @@ pub struct Commit {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum RefKind {
     Local,
     Remote,
@@ -27,6 +31,8 @@ pub enum RefKind {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct GitRef {
     pub name: String,      // short name, e.g. "master", "origin/master", "v1.0"
     pub full: String,      // full name, e.g. "refs/heads/master"
@@ -38,6 +44,8 @@ pub struct GitRef {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Stash {
     pub index: usize,
     pub sha: String,
@@ -45,12 +53,16 @@ pub struct Stash {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct FileChange {
     pub path: String,
     pub status: char, // M, A, D, R, ?, U
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct WorkStatus {
     pub unstaged: Vec<FileChange>,
     pub staged: Vec<FileChange>,
@@ -58,6 +70,8 @@ pub struct WorkStatus {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Worktree {
     pub path: String,
     pub branch: String,
@@ -65,6 +79,8 @@ pub struct Worktree {
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct RepoData {
     #[serde(skip)]
     pub history_revs: Vec<String>,
@@ -90,6 +106,8 @@ pub struct RepoData {
 
 /// One finished git command, kept for the activity log.
 #[derive(Clone, Debug, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct LogEntry {
     pub time: String,
     pub command: String,
@@ -268,6 +286,8 @@ pub fn repo_root(dir: &Path) -> Option<PathBuf> {
 /// Which branches and tags the graph shows: hidden refs are left out; when any ref is
 /// soloed only the soloed refs are shown (full names such as "refs/heads/main").
 #[derive(Clone, Debug, Default, Deserialize)]
+#[derive(ts_rs::TS)]
+#[ts(export, optional_fields = nullable)]
 pub struct RefView {
     #[serde(default)]
     pub hidden: Vec<String>,
@@ -278,6 +298,7 @@ pub struct RefView {
     pub pinned: Option<String>,
     /// UI Customization > Branch visibility: Smart Branch Visibility.
     #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
     pub smart: bool,
 }
 
@@ -636,6 +657,8 @@ pub fn commit_files(dir: &Path, c: &Commit) -> Vec<FileChange> {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum DiffLineKind {
     Context,
     Added,
@@ -646,6 +669,8 @@ pub enum DiffLineKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct DiffLine {
     pub kind: DiffLineKind,
     pub old_no: Option<usize>,
@@ -699,6 +724,8 @@ pub fn parse_diff(text: &str) -> Vec<DiffLine> {
 /// Where a diff is taken from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "sha")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum DiffSource {
     Unstaged,
     Staged,
@@ -907,6 +934,8 @@ mod paging_tests {
 }
 
 #[derive(Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct CommitFile {
     #[serde(flatten)] pub change: FileChange,
     pub storage: Option<String>,

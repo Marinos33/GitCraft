@@ -71,6 +71,8 @@ struct LaunchOptions {
 }
 
 #[derive(Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 struct RepoView {
     path: String,
     name: String,
@@ -82,6 +84,8 @@ struct RepoView {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 struct HistoryCursor {
     revs: Vec<String>,
     offset: usize,
@@ -89,6 +93,8 @@ struct HistoryCursor {
 }
 
 #[derive(Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 struct HistoryPage {
     commits: Vec<git::Commit>,
     graph: graph::GraphLayout,
@@ -830,6 +836,8 @@ async fn init_repo(parent: String, name: String, options: Option<manage::InitOpt
 
 /// What the Clone dialog can ask for besides the address and folder.
 #[derive(serde::Deserialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export, optional_fields = nullable)]
 struct CloneOptions {
     /// Only the newest this-many commits (--depth).
     depth: Option<u32>,

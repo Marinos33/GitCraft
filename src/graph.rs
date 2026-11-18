@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 pub const GRAPH_COLORS: usize = 10;
 
 #[derive(Clone, Debug, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Seg {
     pub from: u16,
     pub to: u16,
@@ -17,6 +19,8 @@ pub struct Seg {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct GraphRow {
     pub col: u16,
     pub color: u8,
@@ -24,13 +28,17 @@ pub struct GraphRow {
     pub down: Vec<Seg>,
     /// Inclusive runs of straight lanes; colour is lane modulo GRAPH_COLORS.
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<[u16; 2]>>", optional)]
     pub up_runs: Vec<[u16; 2]>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<[u16; 2]>>", optional)]
     pub down_runs: Vec<[u16; 2]>,
     pub merge: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct GraphLayout {
     pub rows: Vec<GraphRow>,
     pub width: u16, // most lanes used at once
@@ -51,6 +59,8 @@ pub fn layout_pinned(commits: &[Commit], pinned: Option<&str>) -> GraphLayout {
 
 /// Only the active lanes are carried between pages; previous rows never need rebuilding.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct LayoutCursor {
     lanes: Vec<Option<String>>,
     pinned_next: Option<String>,

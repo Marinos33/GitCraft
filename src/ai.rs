@@ -406,6 +406,8 @@ pub fn explain_branch(dir: &Path, branch: &str, base: &str) -> Result<String, St
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct ComposedCommit {
     pub summary: String,
     pub description: String,

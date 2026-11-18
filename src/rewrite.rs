@@ -13,6 +13,8 @@ const SEQUENCE_EDITOR: &str = r#"while IFS= read -r line || [ -n "$line" ]; do p
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum Step {
     Pick,
     Reword,
@@ -21,6 +23,8 @@ pub enum Step {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct TodoItem {
     pub action: Step,
     pub sha: String,
@@ -115,6 +119,8 @@ pub fn interactive_cherry_pick(dir: &Path, items: &[TodoItem], _log: &dyn Fn(&[&
 
 
 #[derive(Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct ConflictInfo {
     pub working_token: String,
     pub decoding_loss: bool,
@@ -187,6 +193,8 @@ pub fn merge_message(dir: &Path) -> Option<String> {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct PlanState { pub head: String, pub branch: String, pub base: String }
 pub fn plan_state(dir: &Path, base: &str) -> Result<PlanState, String> {
     let head = git::run(dir, &["rev-parse", "--verify", "HEAD"]);

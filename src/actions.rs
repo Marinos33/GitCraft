@@ -9,6 +9,8 @@ use std::sync::Mutex;
 /// Exact local and remote state reviewed before a destructive push.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct PushReview {
     pub branch: String,
     pub head: String,
@@ -76,6 +78,8 @@ pub fn stash_message(message: &str, branch: &str) -> String {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export, optional_fields = nullable)]
 pub enum Action {
     Stage { paths: Vec<String> },
     Unstage { paths: Vec<String> },
@@ -89,9 +93,11 @@ pub enum Action {
         amend: bool,
         stage_all: bool,
         #[serde(default)]
+        #[ts(as = "Option<bool>", optional)]
         skip_hooks: bool,
         /// Commit > Remove comments from commit messages (git commit --cleanup=strip).
         #[serde(default)]
+        #[ts(as = "Option<bool>", optional)]
         strip_comments: bool,
     },
     Checkout { target: String },
@@ -197,6 +203,8 @@ fn spawn_git(dir: &Path, args: &[String]) {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct ActionResult {
     pub ok: bool,
     pub message: String,
@@ -251,6 +259,8 @@ pub struct Engine {
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct UndoInfo {
     pub undo: Option<String>,
     pub redo: Option<String>,

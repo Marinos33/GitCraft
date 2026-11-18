@@ -14,7 +14,7 @@ const repo: RepoView = {
   path: "/repos/a", name: "a", commits: [commit], refs: [ref], head_branch: "main", head_sha: commit.sha,
   remotes: [], worktrees: [], submodules: [], stashes: [], status: { staged: [], unstaged: [], conflicted: false },
   state_note: null, has_more: false, merge_msg: null, conflict_labels: null,
-  graph: { rows: [], width: 0 }, undo: { undo: null, redo: null },
+  graph: { rows: [], width: 0 }, history_cursor: null, undo: { undo: null, redo: null },
 };
 
 afterEach(() => {

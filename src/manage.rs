@@ -17,6 +17,8 @@ pub const GITFLOW_DEFAULTS: [(&str, &str); 6] = [
 ];
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct GitflowConfig {
     pub master: String,
     pub develop: String,
@@ -176,6 +178,8 @@ pub fn gitflow_finish(dir: &Path, kind: &str, name: &str, keep: bool, tag_messag
 }
 
 #[derive(Serialize, Clone, Debug)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct CleanupBranch {
     pub name: String,
     pub time: i64,
@@ -204,6 +208,8 @@ pub fn cleanup_list(dir: &Path) -> Vec<CleanupBranch> {
 }
 
 #[derive(Serialize, Clone, Debug)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Remote {
     pub name: String,
     pub fetch_url: String,
@@ -219,10 +225,13 @@ pub fn remotes(dir: &Path) -> Vec<Remote> {
 }
 
 #[derive(Serialize, Clone, Debug)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Submodule {
     pub path: String,
     pub sha: String,
     /// in-sync, out-of-sync, uninitialized or conflict (from `git submodule status`).
+    #[ts(type = "\"in-sync\" | \"out-of-sync\" | \"uninitialized\" | \"conflict\"")]
     pub state: String,
     pub url: String,
 }
@@ -247,6 +256,8 @@ pub fn submodules(dir: &Path) -> Vec<Submodule> {
 
 /// Git LFS: whether it's installed, the tracked patterns and the current locks.
 #[derive(Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct LfsInfo {
     pub available: bool,
     pub version: String,
@@ -257,6 +268,8 @@ pub struct LfsInfo {
 }
 
 #[derive(Serialize, Clone)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct LfsLock {
     pub id: String,
     pub path: String,
@@ -320,6 +333,8 @@ pub fn ignore(dir: &Path, pattern: &str) -> Result<bool, String> {
 }
 
 #[derive(Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct SparseInfo {
     pub enabled: bool,
     pub patterns: Vec<String>,
@@ -351,6 +366,8 @@ pub fn mit_license(year: i32, name: &str) -> String {
 }
 
 #[derive(Deserialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct InitOptions {
     #[serde(default)]
     pub branch: String,
@@ -420,6 +437,8 @@ pub fn init_files(dir: &Path, name: &str, opts: &InitOptions, run: &dyn Fn(&[&st
 }
 
 #[derive(Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct InitOutcome { pub path: String, pub warning: Option<String> }
 pub fn initialize_lfs(dir: &Path, requested: bool, run: &dyn Fn(&[&str]) -> GitOut) -> InitOutcome {
     let warning = if requested {

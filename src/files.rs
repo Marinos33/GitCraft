@@ -50,6 +50,8 @@ fn preview_contents(dir: &Path, rev: &str, file: &str, limit: usize) -> Result<O
 }
 
 #[derive(Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct FileVersions {
     pub new_token: Option<String>,
     pub too_large: bool,
@@ -228,6 +230,8 @@ pub fn partial_patch(diff: &str, hunk: usize, lines: Option<&[usize]>, reverse: 
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum PatchOp {
     Stage,
     Unstage,
@@ -462,6 +466,8 @@ fn replace_file_with(path: &Path, write: impl FnOnce(&mut std::fs::File) -> std:
 }
 
 #[derive(Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct HistoryEntry {
     #[serde(flatten)]
     pub commit: Commit,
@@ -500,6 +506,8 @@ pub fn history(dir: &Path, file: &str, max: usize) -> Result<Vec<HistoryEntry>, 
 }
 
 #[derive(Serialize, Clone, Debug)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct BlameLine {
     pub sha: String,
     pub author: String,
@@ -565,6 +573,8 @@ pub fn blame(dir: &Path, file: &str, rev: Option<&str>) -> Result<Vec<BlameLine>
 }
 
 #[derive(Serialize)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Stats {
     pub sha: String,
     pub files: u32,

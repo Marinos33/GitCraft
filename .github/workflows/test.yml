@@ -61,6 +61,18 @@ jobs:
         run: node --test scripts/desktop-harness-paths.test.mjs
       - name: Test native Git operations
         run: cargo test --locked -- --test-threads=1
+      # cargo test regenerates the IPC types in ui/src/bindings from the Rust definitions.
+      - name: Check that the generated IPC types are committed
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          stale=$(git status --porcelain -- ui/src/bindings)
+          if [[ -n "$stale" ]]; then
+            echo "::error::ui/src/bindings is out of date. Run cargo test and commit the changes:"
+            echo "$stale"
+            git diff -- ui/src/bindings
+            exit 1
+          fi
 
   browser:
     name: Headless browser regressions
