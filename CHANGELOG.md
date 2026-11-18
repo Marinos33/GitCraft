@@ -10,6 +10,7 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 - Connected-service tokens are given to Git only for commands that can contact a remote. Repository-configured programs started by status, log or diff no longer receive them.
 - Saving a file from the editor is refused when its path, or a symlink on the way, leads outside the repository.
 - Clone URLs can no longer be read as Git options, and the destination folder name is checked.
+- Connected-service tokens are no longer placed in the environment of Git processes. Git now asks GitCraft for the sign-in when it needs one, and GitCraft reads it from the system's credential store at that moment.
 
 ### Added
 

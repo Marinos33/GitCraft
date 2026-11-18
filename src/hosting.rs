@@ -323,7 +323,34 @@ pub fn gh_cli_token() -> Result<String, String> {
     }
 }
 
-/// Give Git the tokens of the connected hosting services, for HTTPS remotes.
+/// Services whose token Git may use for HTTPS remotes.
+const GIT_SERVICES: [&str; 7] = ["github", "github-enterprise", "gitlab", "gitlab-self", "bitbucket", "bitbucket-server", "azure"];
+
+/// The user name Git sends with a service's token.
+fn git_user(id: &str, c: &Config) -> String {
+    match id {
+        "github" | "github-enterprise" => "x-access-token".to_string(),
+        "gitlab" | "gitlab-self" => "oauth2".to_string(),
+        "bitbucket" if c.bitbucket_user.trim().is_empty() => "x-token-auth".to_string(),
+        "bitbucket" => c.bitbucket_user.trim().to_string(),
+        "bitbucket-server" => c.bitbucket_server_user.trim().to_string(),
+        _ => "gitcraft".to_string(),
+    }
+}
+
+/// The sign-in (user name, token) Git should use for `host`, as Git names it (host[:port]).
+pub fn git_login(host: &str) -> Option<(String, String)> {
+    let c = config();
+    let id = GIT_SERVICES.into_iter().find(|id| {
+        let configured = host_of(id);
+        let authority = configured.split('/').next().unwrap_or_default();
+        !authority.is_empty() && authority.eq_ignore_ascii_case(host)
+    })?;
+    Some((git_user(id, &c), secret_get(&secret_name(id))?))
+}
+
+/// Tell Git which hosts have a connected service. The tokens stay in the credential store; Git
+/// asks GitCraft's credential helper for them when it needs them.
 pub fn sync_git_credentials(gitlab_host: &str) {
     if !gitlab_host.trim().is_empty() {
         let mut c = config();
@@ -332,25 +359,35 @@ pub fn sync_git_credentials(gitlab_host: &str) {
             set_config(c);
         }
     }
-    let c = config();
-    let mut t = Vec::new();
-    for id in ["github", "github-enterprise", "gitlab", "gitlab-self", "bitbucket", "bitbucket-server", "azure"] {
-        let host = host_of(id);
-        let Some(tok) = secret_get(&secret_name(id)) else { continue };
-        if host.is_empty() {
-            continue;
-        }
-        let user = match id {
-            "github" | "github-enterprise" => "x-access-token".to_string(),
-            "gitlab" | "gitlab-self" => "oauth2".to_string(),
-            "bitbucket" if c.bitbucket_user.trim().is_empty() => "x-token-auth".to_string(),
-            "bitbucket" => c.bitbucket_user.trim().to_string(),
-            "bitbucket-server" => c.bitbucket_server_user.trim().to_string(),
-            _ => "gitcraft".to_string(),
-        };
-        t.push((host, user, tok));
-    }
-    crate::git::set_host_tokens(t);
+    let hosts = GIT_SERVICES.into_iter()
+        .filter(|id| secret_get(&secret_name(id)).is_some())
+        .map(host_of)
+        .filter(|host| !host.is_empty())
+        .collect();
+    crate::git::set_credential_hosts(hosts);
+}
+
+/// `gitcraft --git-credential <operation>`: Git's credential helper protocol on stdin/stdout.
+/// Runs before the window opens and only answers `get`.
+pub fn git_credential_main(operation: &str) -> i32 {
+    use std::io::{Read, Write};
+    let mut input = String::new();
+    if std::io::stdin().take(64 * 1024).read_to_string(&mut input).is_err() { return 1; }
+    if operation == "get" { load_saved_config(); }
+    let reply = crate::git::credential_reply(operation, &input, git_login);
+    let mut out = std::io::stdout();
+    if out.write_all(reply.as_bytes()).and_then(|_| out.flush()).is_err() { return 1; }
+    0
+}
+
+/// Read the integrations section of the saved preferences, for the credential helper process.
+fn load_saved_config() {
+    let path = crate::sample::data_dir().join("settings.json");
+    let Some(saved) = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) else { return };
+    let settings = &saved["settings"];
+    let mut c: Config = serde_json::from_value(settings["integrations"].clone()).unwrap_or_default();
+    if c.gitlab_host.trim().is_empty() { c.gitlab_host = s(&settings["gitlabHost"]); }
+    set_config(c);
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -528,16 +565,18 @@ mod tests {
         assert_eq!(https_url("https://github.com/a/b.git"), None);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn tokens_reach_git_through_the_environment_only() {
-        let env = crate::git::credential_env(&[("github.com".into(), "x-access-token".into(), "secret123".into())]);
-        let get = |k: &str| env.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone()).unwrap_or_default();
-        assert_eq!(get("GIT_CONFIG_COUNT"), "2");
-        assert_eq!(get("GIT_CONFIG_KEY_0"), "credential.https://github.com.helper");
-        assert_eq!(get("GIT_CONFIG_VALUE_0"), "");
-        assert!(get("GIT_CONFIG_VALUE_1").contains("$GITCRAFT_TOKEN_0") && !get("GIT_CONFIG_VALUE_1").contains("secret123"));
-        assert_eq!(get("GITCRAFT_TOKEN_0"), "secret123");
-        // Git really reads that helper: ask it for credentials of a made-up repository.
+    fn git_asks_the_helper_and_gets_the_reply_verbatim() {
+        // A stand-in for `gitcraft --git-credential`, configured exactly as git_cmd configures it.
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("helper.sh");
+        std::fs::write(&script, "#!/bin/sh\ntest \"$2\" = get || exit 0\nprintf 'username=x-access-token\\npassword=secret123\\n'\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let helper = crate::git::credential_helper(&script);
+        let env = crate::git::credential_env(&["github.com".into()], &helper);
+        assert!(!env.iter().any(|(_, v)| v.contains("secret123")));
         let mut c = std::process::Command::new("git");
         c.args(["credential", "fill"]).envs(env.iter().cloned()).env("GIT_TERMINAL_PROMPT", "0");
         c.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
@@ -546,6 +585,18 @@ mod tests {
         ch.stdin.take().unwrap().write_all(b"protocol=https\nhost=github.com\npath=x/y.git\n\n").unwrap();
         let out = String::from_utf8_lossy(&ch.wait_with_output().unwrap().stdout).into_owned();
         assert!(out.contains("username=x-access-token") && out.contains("password=secret123"), "{out}");
+    }
+
+    #[test]
+    fn git_logins_match_configured_hosts_and_users() {
+        let previous = config();
+        set_config(Config { bitbucket_user: " team-user ".into(), github_enterprise_host: "https://GHE.example.test/".into(), ..Default::default() });
+        assert_eq!(git_user("bitbucket", &config()), "team-user");
+        assert_eq!(git_user("github-enterprise", &config()), "x-access-token");
+        assert_eq!(git_user("gitlab-self", &config()), "oauth2");
+        // No token in the store for these made-up hosts, so nothing is answered.
+        assert_eq!(git_login("unknown.example.test"), None);
+        set_config(previous);
     }
 
     #[test]

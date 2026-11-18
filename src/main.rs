@@ -1098,6 +1098,10 @@ fn take_and_exit(window: &tauri::WebviewWindow, out: &Path, app: &tauri::AppHand
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // Git's credential helper mode (see git::credential_helper): answer and exit before any window opens.
+    if args.get(1).map(String::as_str) == Some("--git-credential") {
+        std::process::exit(hosting::git_credential_main(args.get(2).map(String::as_str).unwrap_or_default()));
+    }
     let shot_view = args.iter().position(|a| a == "--shot-view").and_then(|i| args.get(i + 1)).cloned();
     let screenshot = args.iter().position(|a| a == "--screenshot").and_then(|i| args.get(i + 1)).map(|p| {
         let p = PathBuf::from(p);

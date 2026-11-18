@@ -131,9 +131,6 @@ pub fn redact_diagnostic(text: &str) -> String {
             let end=value[start..].find('\n').map(|offset|start+offset).unwrap_or(value.len());value.replace_range(start..end," [redacted]");cursor=start+" [redacted]".len();
         }
     }
-    if let Ok(tokens)=HOST_TOKENS.read() {
-        for (_,_,token) in tokens.iter().filter(|(_,_,token)|!token.is_empty()) {value=value.replace(token,"[redacted]");}
-    }
     value
 }
 
@@ -148,36 +145,38 @@ impl GitOut {
     }
 }
 
-/// Sign-ins for HTTPS remotes: (host, user name, token). Filled from the services connected in Accounts
-/// (GitHub / GitLab tokens in the system's credential store).
-static HOST_TOKENS: std::sync::RwLock<Vec<(String, String, String)>> = std::sync::RwLock::new(Vec::new());
+/// Hosts of the connected services (Accounts). Git asks GitCraft's own credential helper for
+/// their sign-in, which reads the token from the system's credential store when Git needs it.
+static CREDENTIAL_HOSTS: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
 
-pub fn set_host_tokens(tokens: Vec<(String, String, String)>) {
-    if let Ok(mut t) = HOST_TOKENS.write() {
-        *t = tokens;
+pub fn set_credential_hosts(hosts: Vec<String>) {
+    if let Ok(mut h) = CREDENTIAL_HOSTS.write() {
+        *h = hosts;
     }
 }
 
-/// Config (through GIT_CONFIG_COUNT, so nothing shows in the command line or the activity log) that makes Git
-/// use a connected service's credentials for https://<host>. Usernames and tokens travel as environment data.
-pub fn credential_env(tokens: &[(String, String, String)]) -> Vec<(String, String)> {
+/// The helper command line: this executable in `--git-credential` mode. Git runs a helper that
+/// starts with `!` through its shell and appends the operation (`get`, `store`, `erase`).
+pub fn credential_helper(exe: &Path) -> String {
+    let path = exe.to_string_lossy();
+    // Git's shell on Windows reads forward slashes; single quotes keep every other byte literal.
+    let path = if cfg!(windows) { path.replace('\\', "/") } else { path.into_owned() };
+    format!("!'{}' --git-credential", path.replace('\'', "'\\''"))
+}
+
+/// Config (through GIT_CONFIG_COUNT, so nothing shows in the command line or the activity log) that
+/// makes Git ask `helper` for https://<host>. No user name or token is part of it.
+pub fn credential_env(hosts: &[String], helper: &str) -> Vec<(String, String)> {
     let mut env = Vec::new();
     let mut n = 0;
-    for (i, (host, user, token)) in tokens.iter().enumerate() {
-        if user.contains(['\r', '\n']) || token.contains(['\r', '\n']) { continue; }
+    for host in hosts.iter().filter(|h| !h.is_empty() && !h.contains(['\r', '\n', '\0'])) {
         let key = format!("credential.https://{host}.helper");
         // An empty helper first clears any other helper for this host, so Git doesn't ask twice.
-        env.push((format!("GIT_CONFIG_KEY_{n}"), key.clone()));
-        env.push((format!("GIT_CONFIG_VALUE_{n}"), String::new()));
-        n += 1;
-        env.push((format!("GIT_CONFIG_KEY_{n}"), key));
-        env.push((
-            format!("GIT_CONFIG_VALUE_{n}"),
-            format!("!f() {{ test \"$1\" = get || exit 0; printf 'username=%s\\npassword=%s\\n' \"$GITCRAFT_USER_{i}\" \"$GITCRAFT_TOKEN_{i}\"; }}; f"),
-        ));
-        n += 1;
-        env.push((format!("GITCRAFT_USER_{i}"), user.clone()));
-        env.push((format!("GITCRAFT_TOKEN_{i}"), token.clone()));
+        for value in ["", helper] {
+            env.push((format!("GIT_CONFIG_KEY_{n}"), key.clone()));
+            env.push((format!("GIT_CONFIG_VALUE_{n}"), value.to_string()));
+            n += 1;
+        }
     }
     if n > 0 {
         env.push(("GIT_CONFIG_COUNT".into(), n.to_string()));
@@ -185,62 +184,15 @@ pub fn credential_env(tokens: &[(String, String, String)]) -> Vec<(String, Strin
     env
 }
 
-/// The Git subcommand in an argument list, skipping global options and the values of `-c` / `-C`.
-pub fn subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
-    let mut i = 0;
-    while i < args.len() {
-        let a = args[i];
-        if matches!(a, "-c" | "-C" | "--git-dir" | "--work-tree" | "--namespace" | "--config-env" | "--super-prefix" | "--attr-source") {
-            i += 2;
-            continue;
-        }
-        if a.starts_with('-') {
-            i += 1;
-            continue;
-        }
-        return Some(a);
-    }
-    None
-}
-
-/// Subcommands that may contact a remote, directly or through the Git LFS smudge filter when they
-/// write files to the working folder. Only these receive the connected services' credentials.
-const CREDENTIAL_VERBS: &[&str] = &[
-    "fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "lfs",
-    "checkout", "switch", "reset", "restore", "merge", "rebase", "cherry-pick", "revert", "stash", "worktree",
-    "sparse-checkout",
-];
-
-pub fn needs_credentials(args: &[&str]) -> bool {
-    subcommand(args).is_some_and(|verb| CREDENTIAL_VERBS.contains(&verb))
-}
-
-/// Whether the repository containing `dir` is a partial clone (for example `--filter blob:none`).
-/// Any command may then fetch missing objects from the promisor remote, so all of them need credentials.
-fn is_partial_clone(dir: &Path) -> bool {
-    let Some(dot_git) = dir.ancestors().map(|d| d.join(".git")).find(|p| p.exists()) else { return false };
-    let mut git_dir = dot_git.clone();
-    if dot_git.is_file() {
-        // Worktrees and submodules: ".git" is a file pointing at the real Git folder.
-        let Some(target) = std::fs::read_to_string(&dot_git).ok().and_then(|s| s.trim().strip_prefix("gitdir:").map(|p| p.trim().to_string())) else { return false };
-        git_dir = dot_git.parent().unwrap_or(dir).join(target);
-        if let Ok(common) = std::fs::read_to_string(git_dir.join("commondir")) {
-            git_dir = git_dir.join(common.trim());
-        }
-    }
-    std::fs::read_to_string(git_dir.join("config")).is_ok_and(|config| config.to_ascii_lowercase().contains("partialclone"))
-}
-
-/// Give Git the connected services' credentials, only when `args` is a command that can need them.
-pub fn add_credentials(c: &mut Command, args: &[&str]) {
-    if !needs_credentials(args) && !c.get_current_dir().is_some_and(is_partial_clone) {
-        return;
-    }
-    if let Ok(t) = HOST_TOKENS.read() {
-        if !t.is_empty() {
-            c.envs(credential_env(&t));
-        }
-    }
+/// Answer one credential-protocol request (`input` as Git writes it). Only `get` is answered; the
+/// sign-in comes from `login(host)`, which returns (user name, token).
+pub fn credential_reply(operation: &str, input: &str, login: impl Fn(&str) -> Option<(String, String)>) -> String {
+    if operation != "get" { return String::new(); }
+    let field = |key: &str| input.lines().take_while(|l| !l.is_empty()).find_map(|l| l.strip_prefix(key)?.strip_prefix('=')).unwrap_or_default();
+    if field("protocol") != "https" { return String::new(); }
+    let Some((user, token)) = login(field("host")) else { return String::new() };
+    if [&user, &token].iter().any(|v| v.is_empty() || v.contains(['\r', '\n', '\0'])) { return String::new(); }
+    format!("username={user}\npassword={token}\n")
 }
 
 pub fn git_cmd(dir: &Path) -> Command {
@@ -251,9 +203,14 @@ pub fn git_cmd(dir: &Path) -> Command {
     if let Some(ssh) = crate::prefs::ssh_command(&rt) {
         c.env("GIT_SSH_COMMAND", ssh);
     }
-    // Hosting tokens are NOT added here: see `add_credentials`. Read commands that run on their own
-    // (status, log, diff…) can start repository-configured programs (core.fsmonitor, hooks, aliases),
-    // which must not inherit the tokens.
+    // Connected services sign in through GitCraft's credential helper. Tokens are never placed in
+    // the environment, so programs a repository configures (core.fsmonitor, hooks, aliases) cannot
+    // read them from there.
+    if let (Ok(hosts), Ok(exe)) = (CREDENTIAL_HOSTS.read(), std::env::current_exe()) {
+        if !hosts.is_empty() {
+            c.envs(credential_env(&hosts, &credential_helper(&exe)));
+        }
+    }
     c.env("GIT_TERMINAL_PROMPT", "0");
     c.env("GIT_EDITOR", "true");
     c.env("GIT_SEQUENCE_EDITOR", "true");
@@ -268,7 +225,6 @@ pub fn run(dir: &Path, args: &[&str]) -> GitOut {
         return run_limited(dir, args, 64 * 1024 * 1024);
     }
     let mut command = git_cmd(dir);
-    add_credentials(&mut command, args);
     match command.args(args).output() {
         Ok(o) => GitOut {
             ok: o.status.success(),
@@ -280,13 +236,12 @@ pub fn run(dir: &Path, args: &[&str]) -> GitOut {
 }
 
 pub fn run_limited(dir: &Path, args: &[&str], limit: usize) -> GitOut {
-    let mut command = git_cmd(dir); add_credentials(&mut command, args); command.args(args);
+    let mut command = git_cmd(dir); command.args(args);
     crate::read_jobs::run(command, limit, None)
 }
 
 pub fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> GitOut {
     let mut c = git_cmd(dir);
-    add_credentials(&mut c, args);
     c.args(args);
     for (k, v) in env {
         c.env(k, v);
@@ -981,50 +936,45 @@ mod credential_scope_tests {
     use super::*;
 
     #[test]
-    fn subcommand_skips_global_options_and_their_values() {
-        assert_eq!(subcommand(&["-c", "core.editor=true", "rebase", "--continue"]), Some("rebase"));
-        assert_eq!(subcommand(&["--literal-pathspecs", "-c", "diff.noprefix=false", "diff", "--"]), Some("diff"));
-        assert_eq!(subcommand(&["-C", "/tmp/repo", "fetch", "origin"]), Some("fetch"));
-        assert_eq!(subcommand(&["--version"]), None);
-        assert_eq!(subcommand(&["--config-env", "http.extraHeader=AUTH", "fetch"]), Some("fetch"));
-        assert!(needs_credentials(&["sparse-checkout", "set", "--no-cone", "--", "/a"]));
+    fn the_helper_command_quotes_the_executable_and_carries_no_secret() {
+        let helper = credential_helper(Path::new("/opt/Git Craft/it's/gitcraft"));
+        assert_eq!(helper, "!'/opt/Git Craft/it'\\''s/gitcraft' --git-credential");
+        let env = credential_env(&["github.com".into(), "bad\nhost".into()], &helper);
+        let get = |k: &str| env.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone()).unwrap_or_default();
+        assert_eq!(get("GIT_CONFIG_COUNT"), "2");
+        assert_eq!(get("GIT_CONFIG_KEY_0"), "credential.https://github.com.helper");
+        assert_eq!(get("GIT_CONFIG_VALUE_0"), "");
+        assert_eq!(get("GIT_CONFIG_VALUE_1"), helper);
+        assert!(credential_env(&[], &helper).is_empty());
     }
 
     #[test]
-    fn only_commands_that_can_reach_a_remote_receive_tokens() {
-        for args in [&["fetch", "--all"][..], &["push", "origin", "main"], &["clone", "--progress", "--", "https://x/y"], &["-c", "a=b", "pull"], &["checkout", "dev"]] {
-            assert!(needs_credentials(args), "{args:?}");
-        }
-        for args in [&["status", "--porcelain"][..], &["log", "-n1"], &["diff", "HEAD"], &["show", "HEAD:file"], &["-c", "fetch=x", "status"], &["check-ignore", "--stdin"]] {
-            assert!(!needs_credentials(args), "{args:?}");
-        }
+    fn the_helper_answers_get_for_https_hosts_only() {
+        let login = |host: &str| (host == "github.com").then(|| ("x-access-token".to_string(), "secret".to_string()));
+        assert_eq!(credential_reply("get", "protocol=https\nhost=github.com\npath=a/b.git\n\n", login), "username=x-access-token\npassword=secret\n");
+        assert_eq!(credential_reply("store", "protocol=https\nhost=github.com\n\n", login), "");
+        assert_eq!(credential_reply("get", "protocol=http\nhost=github.com\n\n", login), "");
+        assert_eq!(credential_reply("get", "protocol=https\nhost=gitlab.com\n\n", login), "");
+        // Lines after the blank line that ends a request are not part of it.
+        assert_eq!(credential_reply("get", "protocol=https\n\nhost=github.com\n", login), "");
+        let bad = |_: &str| Some(("user".to_string(), "two\nlines".to_string()));
+        assert_eq!(credential_reply("get", "protocol=https\nhost=x\n", bad), "");
     }
 
     #[test]
-    fn read_commands_do_not_inherit_tokens() {
-        /// Puts the previous process-wide tokens back even if an assertion fails.
-        struct Restore(Vec<(String, String, String)>);
+    fn git_commands_carry_no_token_in_their_environment() {
+        /// Puts the previous process-wide hosts back even if an assertion fails.
+        struct Restore(Vec<String>);
         impl Drop for Restore {
-            fn drop(&mut self) { set_host_tokens(std::mem::take(&mut self.0)); }
+            fn drop(&mut self) { set_credential_hosts(std::mem::take(&mut self.0)); }
         }
-        let _restore = Restore(HOST_TOKENS.read().map(|t| t.clone()).unwrap_or_default());
-        set_host_tokens(vec![("scope.invalid".into(), "user".into(), "scope-secret".into())]);
-        let has_token = |c: &Command| c.get_envs().any(|(k, v)| k.to_string_lossy() == "GITCRAFT_TOKEN_0" && v.is_some_and(|v| v == "scope-secret"));
-        let plain = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(plain.path().join(".git")).unwrap();
-        std::fs::write(plain.path().join(".git/config"), "[core]\n\tbare = false\n").unwrap();
-        let mut read = git_cmd(plain.path());
-        add_credentials(&mut read, &["status"]);
-        assert!(!has_token(&read));
-        let mut fetch = git_cmd(plain.path());
-        add_credentials(&mut fetch, &["fetch"]);
-        assert!(has_token(&fetch));
-        // A partial clone fetches missing objects on demand, so even reads get credentials.
-        let partial = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(partial.path().join(".git")).unwrap();
-        std::fs::write(partial.path().join(".git/config"), "[remote \"origin\"]\n\tpromisor = true\n\tpartialclonefilter = blob:none\n").unwrap();
-        let mut diff = git_cmd(&partial.path().join("src"));
-        add_credentials(&mut diff, &["diff", "HEAD~1"]);
-        assert!(has_token(&diff));
+        let _restore = Restore(CREDENTIAL_HOSTS.read().map(|t| t.clone()).unwrap_or_default());
+        set_credential_hosts(vec!["scope.invalid".into()]);
+        let dir = tempfile::tempdir().unwrap();
+        let command = git_cmd(dir.path());
+        let env: Vec<_> = command.get_envs().map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()).unwrap_or_default())).collect();
+        assert!(env.iter().any(|(k, v)| k == "GIT_CONFIG_KEY_1" && v == "credential.https://scope.invalid.helper"));
+        assert!(env.iter().any(|(k, v)| k == "GIT_CONFIG_VALUE_1" && v.ends_with("--git-credential")));
+        assert!(!env.iter().any(|(k, _)| k.starts_with("GITCRAFT_")));
     }
 }

@@ -783,18 +783,15 @@ fn signing_booleans_normalize_and_explicit_false_overrides_includes() {
 
 #[test]
 fn credential_usernames_are_literal_protocol_data_not_shell_code() {
-    use std::io::Write;
-    let folder=tempfile::tempdir().unwrap();
+    let helper=git::credential_helper(std::path::Path::new("/opt/gitcraft"));let env=git::credential_env(&["fixture.invalid".into()],&helper);
     for user in ["normal@example.test","o'connor@example.test","space name","dollar$NAME","back`tick","semi;colon&pipe|name"] {
-        let token="synthetic-token-privacy";let env=git::credential_env(&[("fixture.invalid".into(),user.into(),token.into())]);
-        assert!(!env.iter().filter(|(key,_)|key.starts_with("GIT_CONFIG_VALUE_")).any(|(_,value)|value.contains(user)||value.contains(token)));
-        let mut child=std::process::Command::new("git").current_dir(folder.path()).args(["credential","fill"])
-            .env("GIT_CONFIG_NOSYSTEM","1").env("GIT_CONFIG_GLOBAL",folder.path().join("empty-config")).env("GIT_TERMINAL_PROMPT","0").envs(env)
-            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
-        child.stdin.take().unwrap().write_all(b"protocol=https\nhost=fixture.invalid\n\n").unwrap();let output=child.wait_with_output().unwrap();assert!(output.status.success());
-        let text=String::from_utf8(output.stdout).unwrap();assert!(text.lines().any(|line|line==format!("username={user}")));assert!(text.lines().any(|line|line==format!("password={token}")));
+        let token="synthetic-token-privacy";
+        // The helper configuration names only the executable: user names and tokens never reach a shell.
+        assert!(!env.iter().any(|(_,value)|value.contains(user)||value.contains(token)));
+        let text=git::credential_reply("get","protocol=https\nhost=fixture.invalid\n\n",|host|(host=="fixture.invalid").then(||(user.to_string(),token.to_string())));
+        assert!(text.lines().any(|line|line==format!("username={user}")));assert!(text.lines().any(|line|line==format!("password={token}")));
     }
-    assert!(git::credential_env(&[("fixture.invalid".into(),"bad\nname".into(),"synthetic".into())]).is_empty());
+    assert!(git::credential_reply("get","protocol=https\nhost=fixture.invalid\n\n",|_|Some(("bad\nname".into(),"synthetic".into()))).is_empty());
 }
 
 #[test]
