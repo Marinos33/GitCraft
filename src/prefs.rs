@@ -52,11 +52,19 @@ pub fn encode(text: &str, enc: &'static encoding_rs::Encoding, had_bom: bool) ->
 /// The git program to start.
 pub fn git_program() -> String {
     let r = crate::settings::current();
-    if r.git_path.trim().is_empty() {
+    let path = r.git_path.trim();
+    // A program that was never approved is refused: Git on the PATH is used instead.
+    if path.is_empty() || crate::approvals::require(&crate::approvals::Command::git(path)).is_err() {
         "git".into()
     } else {
-        r.git_path.trim().to_string()
+        path.to_string()
     }
+}
+
+/// The GPG program Git signs with (global `gpg.program`, else gpg on the PATH).
+pub fn gpg_program() -> String {
+    let configured = config_get(None, "global", &["gpg.program".to_string()]).remove("gpg.program").unwrap_or_default();
+    if configured.trim().is_empty() { "gpg".into() } else { configured.trim().to_string() }
 }
 
 /// GIT_SSH_COMMAND for a chosen private key (forward slashes: the value goes through Git's sh).

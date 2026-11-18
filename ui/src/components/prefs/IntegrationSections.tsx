@@ -204,7 +204,6 @@ export function SigningSection() {
     await acc.refetch();
   };
   const ssh = c["gpg.format"] === "ssh";
-  const program = c["gpg.program"] || "gpg";
   return (
     <>
       <H>Commit Signing</H>
@@ -229,7 +228,7 @@ export function SigningSection() {
               disabled={!c["user.signingkey"]}
               onClick={async () => {
                 try {
-                  await navigator.clipboard.writeText(await tools.gpgExport(program, c["user.signingkey"]));
+                  await navigator.clipboard.writeText(await tools.gpgExport(c["user.signingkey"]));
                   s.toast(true, "Public GPG key copied successfully");
                 } catch (e) {
                   s.toast(false, String(e));
@@ -246,7 +245,7 @@ export function SigningSection() {
               onClick={async () => {
                 setBusy(true);
                 try {
-                  const fpr = await tools.gpgGenerate(program, acc.data?.name ?? "", acc.data?.email ?? "", pass);
+                  const fpr = await tools.gpgGenerate(acc.data?.name ?? "", acc.data?.email ?? "", pass);
                   await save("user.signingkey", fpr);
                   setPass("");
                   s.toast(true, "GPG Key Created Successfully");

@@ -30,6 +30,7 @@ impl Model {
 
 pub fn list(config: &ai::AiConfig) -> Result<Vec<Model>, String> {
     let mut models = if let Some(agent) = ai_cli::Agent::from_provider(&config.provider) {
+        ai::require_program(config)?;
         ai_cli::list_models(agent, &config.cli_path, &config.cli_config_dir)?
     } else {
         let key = secret_get(ai::key_name(&config.provider)).filter(|k| !k.trim().is_empty());

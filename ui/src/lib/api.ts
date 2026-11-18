@@ -1,5 +1,6 @@
 import { useStore } from "./store";
 import { invoke } from "@tauri-apps/api/core";
+import { flushPersistence } from "./persistence";
 
 export type RefKind = "Local" | "Remote" | "Tag";
 
@@ -420,9 +421,10 @@ export const api = {
   rangeFiles: (path: string, from: string, to: string, signal?: AbortSignal) => invokeRead<FileChange[]>("range_files", { path, from, to }, signal),
   trackedFiles: (path: string, signal?: AbortSignal) => invokeRead<string[]>("tracked_files", { path }, signal),
   /** Preferences > External Tools > Editor. */
-  openInEditor: (path: string, file?: string) => {
-    const t = useStore.getState().settings;
-    return invoke<void>("open_in_editor", { path, file: file ?? null, tool: t.externalEditor, exe: t.editorPath, fileArgs: t.editorFileArgs, repoArgs: t.editorRepoArgs });
+  openInEditor: async (path: string, file?: string) => {
+    // The editor comes from the saved settings, so save a choice made a moment ago first.
+    await flushPersistence();
+    return invoke<void>("open_in_editor", { path, file: file ?? null });
   },
   accountInfo: (path: string | null, signal?: AbortSignal) => invokeRead<AccountInfo>("account_info", { path }, signal),
   gitConfig: (path: string | null, scope: "global" | "local", keys: string[], signal?: AbortSignal) => invokeRead<Record<string, string>>("git_config_get", { path, scope, keys }, signal),
@@ -459,7 +461,7 @@ export const api = {
       useStore.getState().setSettings({ showTerminal: true });
       return Promise.resolve();
     }
-    return invoke<void>("open_terminal", { path, tool: t.externalTerminal, exe: t.terminalPath, args: t.terminalArgs });
+    return flushPersistence().then(() => invoke<void>("open_terminal", { path }));
   },
   openFileManager: (path: string) => invoke<void>("open_file_manager", { path }),
   /** Open a repository file with the system's usual app for it. */
@@ -469,7 +471,8 @@ export const api = {
   /** A file's text from the working folder, or as it was in `rev`. */
   fileText: (path: string, file: string, rev?: string, signal?: AbortSignal) => invokeRead<string>("file_text", { path, file, rev: rev ?? null }, signal),
   loadSettings: () => invoke<unknown>("load_settings"),
-  saveSettings: (settings: unknown) => invoke<void>("save_settings", { settings }),
+  /** Returns the settings GitCraft restored because a new command was not approved. */
+  saveSettings: (settings: unknown) => invoke<Record<string, unknown> | null | undefined>("save_settings", { settings }),
   watchRepo: (path: string) => invoke<void>("watch_repo", { path }),
   unwatchRepo: (path: string) => invoke<void>("unwatch_repo", { path }),
   screenshotReady: () => invoke<void>("screenshot_ready"),

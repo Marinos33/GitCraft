@@ -1,7 +1,8 @@
 //! The preferences the back end acts on, read from GitCraft's settings file.
 //!
 //! The front end owns the file's layout and writes it through `save_settings`; this module parses
-//! the typed subset the back end needs (Git executable, SSH, logging, encodings, integrations, AI)
+//! the typed subset the back end needs (Git executable, SSH, logging, encodings, integrations, AI,
+//! external editor and terminal)
 //! when GitCraft starts and after every save. Missing keys take the same defaults as the front
 //! end, unknown keys are ignored, and nothing here is pushed from the front end directly.
 
@@ -34,6 +35,15 @@ pub struct Settings {
     pub gitlab_host: String,
     pub integrations: crate::hosting::Config,
     pub ai: crate::ai::AiConfig,
+    /// External Tools: a known editor id, or "custom" for `editor_path` with argument templates.
+    pub external_editor: String,
+    pub editor_path: String,
+    pub editor_file_args: String,
+    pub editor_repo_args: String,
+    /// External Tools: "default", a known terminal id, or "custom" for `terminal_path`.
+    pub external_terminal: String,
+    pub terminal_path: String,
+    pub terminal_args: String,
 }
 
 impl Default for Settings {
@@ -47,6 +57,13 @@ impl Default for Settings {
             gitlab_host: String::new(),
             integrations: Default::default(),
             ai: Default::default(),
+            external_editor: "vscode".into(),
+            editor_path: String::new(),
+            editor_file_args: String::new(),
+            editor_repo_args: String::new(),
+            external_terminal: "default".into(),
+            terminal_path: String::new(),
+            terminal_args: String::new(),
         }
     }
 }
@@ -77,6 +94,13 @@ impl Settings {
             gitlab_host: field(value, "gitlabHost").unwrap_or(d.gitlab_host),
             integrations: field(value, "integrations").unwrap_or(d.integrations),
             ai: field(value, "ai").unwrap_or(d.ai),
+            external_editor: field(value, "externalEditor").unwrap_or(d.external_editor),
+            editor_path: field(value, "editorPath").unwrap_or(d.editor_path),
+            editor_file_args: field(value, "editorFileArgs").unwrap_or(d.editor_file_args),
+            editor_repo_args: field(value, "editorRepoArgs").unwrap_or(d.editor_repo_args),
+            external_terminal: field(value, "externalTerminal").unwrap_or(d.external_terminal),
+            terminal_path: field(value, "terminalPath").unwrap_or(d.terminal_path),
+            terminal_args: field(value, "terminalArgs").unwrap_or(d.terminal_args),
         }
     }
 

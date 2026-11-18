@@ -103,6 +103,24 @@ pub fn open_editor(repo: &str, file: Option<&str>, tool: &str, exe: &str, file_a
     spawn(editor_process(&program_path(cmd), &target, repo))
 }
 
+/// Open a repository (or one file in it) in the editor chosen in the settings.
+pub fn open_configured_editor(repo: &str, file: Option<&str>) -> Result<(), String> {
+    let s = crate::settings::current();
+    if s.external_editor == "custom" {
+        crate::approvals::require(&crate::approvals::Command::editor(&s.editor_path, &s.editor_file_args, &s.editor_repo_args))?;
+    }
+    open_editor(repo, file, &s.external_editor, &s.editor_path, &s.editor_file_args, &s.editor_repo_args)
+}
+
+/// Open the terminal chosen in the settings in the repository folder.
+pub fn open_configured_terminal(repo: &str) -> Result<(), String> {
+    let s = crate::settings::current();
+    if s.external_terminal == "custom" {
+        crate::approvals::require(&crate::approvals::Command::terminal(&s.terminal_path, &s.terminal_args))?;
+    }
+    open_terminal(repo, &s.external_terminal, &s.terminal_path, &s.terminal_args)
+}
+
 /// Open a terminal app in the repository folder.
 pub fn open_terminal(repo: &str, tool: &str, exe: &str, args: &str) -> Result<(), String> {
     if tool == "custom" {

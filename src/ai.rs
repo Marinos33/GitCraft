@@ -46,6 +46,12 @@ fn config() -> AiConfig {
     crate::settings::current().ai.clone()
 }
 
+/// Refuse a configured AI program that was never approved.
+pub fn require_program(c: &AiConfig) -> Result<(), String> {
+    if c.cli_path.trim().is_empty() { return Ok(()); }
+    crate::approvals::require(&crate::approvals::Command::ai_program(&c.cli_path))
+}
+
 pub fn key_name(provider: &str) -> &'static str {
     match provider {
         "openai" => "openai-key", "google" => "google-key",
@@ -182,6 +188,7 @@ fn ask(feature: &str, system: &str, prompt: String, effort: &str, schema: Value)
     if !c.enabled { return Err("AI features are turned off (Preferences > AI).".into()); }
     let system = system_with_instructions(&c, feature, system);
     if let Some(agent) = ai_cli::Agent::from_provider(&c.provider) {
+        require_program(&c)?;
         let reply = ai_cli::ask(agent, &c.cli_path, &c.cli_config_dir, model_override(&c, feature), &system, &prompt, &schema)?;
         return parse_answer(&reply, &schema, &c.provider);
     }

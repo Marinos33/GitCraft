@@ -169,10 +169,11 @@ export const integrations = {
 };
 
 export const tools = {
-  versions: (gpgProgram: string) => invoke<{ git: string; git_path: string; ssh: string; gpg: string }>("tool_versions", { gpgProgram }),
+  versions: () => invoke<{ git: string; git_path: string; ssh: string; gpg: string }>("tool_versions"),
   configGet: (path: string | null, scope: "global" | "local", keys: string[], signal?: AbortSignal) => invokeRead<Record<string, string>>("git_config_get", { path, scope, keys }, signal),
-  gpgGenerate: (program: string, name: string, email: string, passphrase: string) => invoke<string>("gpg_generate_key", { program, name, email, passphrase }),
-  gpgExport: (program: string, key: string) => invoke<string>("gpg_export_key", { program, key }),
+  /** Both use Git's gpg.program setting. */
+  gpgGenerate: (name: string, email: string, passphrase: string) => invoke<string>("gpg_generate_key", { name, email, passphrase }),
+  gpgExport: (key: string) => invoke<string>("gpg_export_key", { key }),
   forgetCredentials: (hosts: string[]) => invoke<number>("forget_credentials", { hosts }),
   deleteOrig: async (path: string) => {
     const candidates = await invoke<{path: string; expected: string}[]>("orig_cleanup_candidates", {path});

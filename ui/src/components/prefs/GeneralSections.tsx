@@ -523,7 +523,7 @@ export function CommitSection() {
 
 export function ExperimentalSection() {
   const { set, put } = useSet();
-  const v = useQuery({ queryKey: ["toolVersions", set.gitPath], queryFn: () => tools.versions("gpg") });
+  const v = useQuery({ queryKey: ["toolVersions", set.gitPath], queryFn: () => tools.versions() });
   const ver = /(?:^|\D)(\d+\.\d+\.\d+)/.exec(v.data?.git ?? "")?.[1];
   const old = ver && ver.localeCompare("2.40.0", undefined, { numeric: true }) < 0;
   return (

@@ -13,6 +13,7 @@ mod pagination;
 mod process_tree;
 mod read_jobs;
 mod agents;
+mod approvals;
 mod ai_cli;
 mod ai_models;
 mod extras;
@@ -310,7 +311,15 @@ async fn push_review(path: String, read_id: Option<String>) -> Result<actions::P
 }
 
 #[tauri::command]
-async fn set_git_config(path: Option<String>, scope: String, key: String, value: String) -> Result<(), String> {
+async fn set_git_config(path: Option<String>, scope: String, key: String, value: String, window: tauri::Window) -> Result<(), String> {
+    if !matches!(scope.as_str(), "global" | "local") { return Err("Unknown Git config scope.".into()); }
+    // Other keys can name programs Git runs (core.hooksPath, gpg.program, credential.helper…).
+    if !approvals::plain_git_config(&key) {
+        let change = if value.is_empty() { format!("git config --{scope} --unset-all {key}") } else { format!("git config --{scope} {key} \"{value}\"") };
+        if !approvals::confirm(&window, "Change this Git setting?", &format!("GitCraft will change your Git configuration:\n\n{change}")).await {
+            return Err("The Git setting was not changed.".into());
+        }
+    }
     blocking(move || accounts::set(Path::new(&path.unwrap_or_else(|| ".".into())), &scope, &key, &value)).await?
 }
 
@@ -684,8 +693,8 @@ async fn remote_auth(path: String, gitlab_host: String, read_id: Option<String>)
 }
 
 #[tauri::command]
-async fn tool_versions(gpg_program: String) -> Result<prefs::Versions, String> {
-    blocking(move || prefs::versions(&gpg_program)).await
+async fn tool_versions() -> Result<prefs::Versions, String> {
+    blocking(|| prefs::versions(&prefs::gpg_program())).await
 }
 
 #[tauri::command]
@@ -694,13 +703,13 @@ async fn git_config_get(path: Option<String>, scope: String, keys: Vec<String>, 
 }
 
 #[tauri::command]
-async fn gpg_generate_key(program: String, name: String, email: String, passphrase: String) -> Result<String, String> {
-    blocking(move || prefs::gpg_generate(&program, &name, &email, &passphrase)).await?
+async fn gpg_generate_key(name: String, email: String, passphrase: String) -> Result<String, String> {
+    blocking(move || prefs::gpg_generate(&prefs::gpg_program(), &name, &email, &passphrase)).await?
 }
 
 #[tauri::command]
-async fn gpg_export_key(program: String, key: String) -> Result<String, String> {
-    blocking(move || prefs::gpg_export(&program, &key)).await?
+async fn gpg_export_key(key: String) -> Result<String, String> {
+    blocking(move || prefs::gpg_export(&prefs::gpg_program(), &key)).await?
 }
 
 #[tauri::command]
@@ -753,8 +762,8 @@ fn update_config(app: tauri::AppHandle) -> serde_json::Value {
 
 /// File > Open Repo in <editor> (Preferences > External Tools > Editor); with `file`, open that file.
 #[tauri::command]
-fn open_in_editor(path: String, file: Option<String>, tool: Option<String>, exe: Option<String>, file_args: Option<String>, repo_args: Option<String>) -> Result<(), String> {
-    external::open_editor(&path, file.as_deref(), tool.as_deref().unwrap_or("vscode"), exe.as_deref().unwrap_or(""), file_args.as_deref().unwrap_or(""), repo_args.as_deref().unwrap_or(""))
+fn open_in_editor(path: String, file: Option<String>) -> Result<(), String> {
+    external::open_configured_editor(&path, file.as_deref())
 }
 
 #[tauri::command]
@@ -844,6 +853,26 @@ struct CloneOptions {
     blobless: Option<bool>,
 }
 
+/// Clone options that set configuration or name programs and folders Git uses: -c/--config,
+/// -u/--upload-pack, --template and --separate-git-dir, including Git's abbreviations of the long
+/// forms and short options bundled together (-qc).
+fn refused_clone_flag(flag: &str) -> bool {
+    if let Some(long) = flag.strip_prefix("--") {
+        let name = long.split('=').next().unwrap_or_default();
+        return !name.is_empty() && ["config", "upload-pack", "template", "separate-git-dir"].iter().any(|refused| refused.starts_with(name));
+    }
+    let Some(short) = flag.strip_prefix('-') else { return false };
+    for c in short.chars() {
+        match c {
+            'c' | 'u' => return true,
+            // These take a value; the rest of the argument is that value.
+            'o' | 'b' | 'j' => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// The `git clone` arguments in a fixed order: branch, depth, progress, since, custom flags, sparse, filter.
 fn clone_args(o: &CloneOptions) -> Result<Vec<String>, String> {
     let mut a: Vec<String> = Vec::new();
@@ -858,7 +887,11 @@ fn clone_args(o: &CloneOptions) -> Result<Vec<String>, String> {
         a.extend(["--shallow-since".to_string(), since.to_string()]);
     }
     if let Some(flags) = o.custom_flags.as_deref() {
-        a.extend(external::argument_fields(flags)?);
+        let flags = external::argument_fields(flags)?;
+        if let Some(flag) = flags.iter().find(|f| refused_clone_flag(f)) {
+            return Err(format!("The clone option {flag} is not allowed here: it can change which programs Git runs."));
+        }
+        a.extend(flags);
     }
     if o.sparse == Some(true) {
         a.push("--sparse".into());
@@ -930,8 +963,8 @@ async fn clone_repo(url: String, parent: String, options: Option<CloneOptions>, 
 
 /// File > Open External Terminal (Preferences > External Tools > Terminal).
 #[tauri::command]
-fn open_terminal(path: String, tool: Option<String>, exe: Option<String>, args: Option<String>) -> Result<(), String> {
-    external::open_terminal(&path, tool.as_deref().unwrap_or("default"), exe.as_deref().unwrap_or(""), args.as_deref().unwrap_or(""))
+fn open_terminal(path: String) -> Result<(), String> {
+    external::open_configured_terminal(&path)
 }
 
 #[tauri::command]
@@ -977,14 +1010,18 @@ fn load_settings(state: State<'_, AppState>) -> serde_json::Value {
     settings::read_saved()
 }
 
-/// Write the front end's settings file, then apply the part the back end acts on.
+/// Write the front end's settings file, then apply the part the back end acts on. New commands
+/// (custom editor or terminal, Git program, AI program) are confirmed first; refused ones keep
+/// their previous values, which are returned for the window to apply.
 #[tauri::command]
-fn save_settings(settings: serde_json::Value, state: State<'_, AppState>) -> Result<(), String> {
+async fn save_settings(mut settings: serde_json::Value, window: tauri::Window, state: State<'_, AppState>) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     if state.screenshot.is_some() {
         // Pictures keep the defaults; desktop validation runs apply settings in memory only.
         if state.shot_view.as_deref() == Some("validation") { apply_settings(&settings); }
-        return Ok(());
+        return Ok(Default::default());
     }
+    let previous = settings::read_saved()["settings"].clone();
+    let corrections = approvals::review(&window, &mut settings, &previous).await?;
     let f = settings::file();
     if let Some(d) = f.parent() {
         std::fs::create_dir_all(d).map_err(err)?;
@@ -995,7 +1032,7 @@ fn save_settings(settings: serde_json::Value, state: State<'_, AppState>) -> Res
     std::fs::write(&pending, serde_json::to_string_pretty(&settings).map_err(err)?).map_err(err)?;
     std::fs::rename(pending, f).map_err(err)?;
     apply_settings(&settings);
-    Ok(())
+    Ok(corrections)
 }
 
 /// Make `saved` (the settings file's content) the settings in effect.
@@ -1104,6 +1141,7 @@ fn main() {
     // The back end reads its settings from the saved file; screenshots always start from defaults.
     if screenshot.is_none() {
         settings::load();
+        approvals::load(&settings::current());
         std::thread::spawn(hosting::sync_git_credentials);
     }
     tauri::Builder::default()
@@ -1288,6 +1326,19 @@ mod clone_tests {
         assert_eq!(clone_args(&CloneOptions::default()).unwrap(), ["--progress"]);
         let blank = CloneOptions { branch: Some("  ".into()), depth: Some(0), ..Default::default() };
         assert_eq!(clone_args(&blank).unwrap(), ["--progress"]);
+    }
+
+    #[test]
+    fn clone_flags_cannot_set_config_or_programs() {
+        for flags in ["-c core.fsmonitor=evil", "--config core.hooksPath=/tmp", "--config=a=b", "-ccore.x=y", "-qc a=b", "-u /tmp/evil",
+            "--upload-pack=/tmp/evil", "--upload-p /tmp/evil", "--template=/tmp/t", "--temp /tmp/t", "--separate-git-dir /tmp/g", "--conf x=y", "-qu evil"] {
+            let options = CloneOptions { custom_flags: Some(flags.into()), ..Default::default() };
+            assert!(clone_args(&options).is_err(), "{flags}");
+        }
+        for flags in ["--no-tags", "--recurse-submodules", "-q", "--origin upstream", "-ocustom", "-bcache", "--jobs 4", "--reference-if-able /x"] {
+            let options = CloneOptions { custom_flags: Some(flags.into()), ..Default::default() };
+            assert!(clone_args(&options).is_ok(), "{flags}");
+        }
     }
 
     #[test]
