@@ -885,6 +885,17 @@ fn clone_args(o: &CloneOptions) -> Result<Vec<String>, String> {
     Ok(a)
 }
 
+/// The folder a clone goes into: the URL's last segment without `.git`, refused when it is not a
+/// plain folder name (empty, `.`, `..`, or containing characters that are invalid in a file name).
+fn clone_folder_name(url: &str) -> Result<String, String> {
+    let name = url.trim_end_matches(['/', '\\']).rsplit(['/', '\\', ':']).next().unwrap_or("").trim_end_matches(".git").trim();
+    let invalid = name.is_empty() || name == "." || name == ".." || name.chars().any(|c| c.is_control() || "<>:\"|?*".contains(c));
+    if invalid {
+        return Err("GitCraft could not choose a folder name from this URL.".into());
+    }
+    Ok(name.to_string())
+}
+
 #[tauri::command]
 async fn clone_repo(url: String, parent: String, options: Option<CloneOptions>, state: State<'_, AppState>) -> Result<String, String> {
     let engine = state.engine.clone();
@@ -892,12 +903,18 @@ async fn clone_repo(url: String, parent: String, options: Option<CloneOptions>, 
     tokio::fs::create_dir_all(&parent).await.map_err(err)?;
     blocking(move || {
         let opts = options.unwrap_or_default();
-        let name = url.trim_end_matches('/').rsplit(['/', '\\', ':']).next().unwrap_or("repo").trim_end_matches(".git").to_string();
+        let url = url.trim().to_string();
+        if url.is_empty() || url.starts_with('-') {
+            return Err("Enter a repository URL or path.".into());
+        }
+        let name = clone_folder_name(&url)?;
         let dest = parent.join(&name);
         let dest_s = dest.to_string_lossy().into_owned();
         let mut args: Vec<String> = vec!["clone".into()];
         args.extend(clone_args(&opts)?);
-        args.push(url.trim().to_string());
+        // `--` keeps the URL and folder from ever being read as options.
+        args.push("--".into());
+        args.push(url);
         args.push(dest_s);
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let o = engine.job("clone", "clone", &parent, &refs);
@@ -1271,5 +1288,15 @@ mod clone_tests {
         assert_eq!(clone_args(&CloneOptions::default()).unwrap(), ["--progress"]);
         let blank = CloneOptions { branch: Some("  ".into()), depth: Some(0), ..Default::default() };
         assert_eq!(clone_args(&blank).unwrap(), ["--progress"]);
+    }
+
+    #[test]
+    fn clone_folder_names_are_plain_names() {
+        assert_eq!(clone_folder_name("https://github.com/a/repo.git").unwrap(), "repo");
+        assert_eq!(clone_folder_name("git@github.com:a/repo.git/").unwrap(), "repo");
+        assert_eq!(clone_folder_name(r"C:\src\local").unwrap(), "local");
+        for url in ["https://example.com/a/..", "https://example.com/.", ".git", "https://example.com/a|b"] {
+            assert!(clone_folder_name(url).is_err(), "{url}");
+        }
     }
 }

@@ -373,7 +373,27 @@ pub fn content_token(bytes: Option<&[u8]>) -> String {
     format!("{:016x}", hash.finish())
 }
 
+/// Where a save of `file` will write: a relative path inside `dir` whose resolved location (after any
+/// symlink or junction) is still inside the repository folder.
+pub fn save_target(dir: &Path, file: &str) -> Result<std::path::PathBuf, String> {
+    let target = repo_file(dir, file)?;
+    let root = std::fs::canonicalize(dir).map_err(|e| e.to_string())?;
+    // The file itself when it exists (follows a symlink), otherwise its nearest existing folder.
+    let mut probe = target.as_path();
+    let resolved = loop {
+        match std::fs::canonicalize(probe) {
+            Ok(path) => break path,
+            Err(_) => probe = probe.parent().ok_or_else(|| format!("\"{file}\" is not a file in this repository"))?,
+        }
+    };
+    if !resolved.starts_with(&root) {
+        return Err(format!("\"{file}\" resolves outside this repository; it was not saved."));
+    }
+    Ok(target)
+}
+
 pub fn save_checked_mode(dir: &Path, file: &str, content: &str, expected: Option<&str>, utf8: bool) -> Result<(), String> {
+    save_target(dir, file)?;
     if let Some(expected) = expected {
         let current = match std::fs::read(dir.join(file)) {
             Ok(bytes) => Some(bytes),
@@ -388,7 +408,7 @@ pub fn save_checked_mode(dir: &Path, file: &str, content: &str, expected: Option
 }
 
 fn save_mode(dir: &Path, file: &str, content: &str, utf8: bool) -> Result<(), String> {
-    let p = dir.join(file);
+    let p = save_target(dir, file)?;
     // Keep the file's existing line endings.
     let before = match std::fs::read(&p) {
         Ok(bytes)=>bytes,Err(error) if error.kind()==std::io::ErrorKind::NotFound=>Vec::new(),Err(error)=>return Err(error.to_string()),
@@ -862,5 +882,44 @@ mod resource_regressions {
         assert!(!blame(temp.path(), "huge.txt", None).unwrap_err().contains("100,000"));
         std::fs::write(file, "x\n".repeat(100_001)).unwrap();
         assert!(blame(temp.path(), "huge.txt", None).unwrap_err().contains("100,000"));
+    }
+}
+
+#[cfg(test)]
+mod save_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn saves_stay_inside_the_repository() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        let outside = temp.path().join("outside.txt");
+        let absolute = outside.to_string_lossy().into_owned();
+        for file in ["../outside.txt", absolute.as_str(), "", "src/../../outside.txt"] {
+            assert!(save_checked_mode(&repo, file, "x", None, false).is_err(), "{file}");
+        }
+        assert!(!outside.exists());
+        save_checked_mode(&repo, "src/new.txt", "inside", None, false).unwrap();
+        assert_eq!(std::fs::read_to_string(repo.join("src/new.txt")).unwrap(), "inside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_cannot_redirect_a_save_outside_the_repository() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo"); std::fs::create_dir_all(&repo).unwrap();
+        let outside_dir = temp.path().join("outside"); std::fs::create_dir_all(&outside_dir).unwrap();
+        std::fs::write(outside_dir.join("secret"), "kept").unwrap();
+        std::os::unix::fs::symlink(outside_dir.join("secret"), repo.join("link")).unwrap();
+        std::os::unix::fs::symlink(&outside_dir, repo.join("dirlink")).unwrap();
+        assert!(save_checked_mode(&repo, "link", "changed", None, false).is_err());
+        assert!(save_checked_mode(&repo, "dirlink/new", "changed", None, false).is_err());
+        assert_eq!(std::fs::read_to_string(outside_dir.join("secret")).unwrap(), "kept");
+        assert!(!outside_dir.join("new").exists());
+        std::fs::write(repo.join("real"), "old").unwrap();
+        std::os::unix::fs::symlink(repo.join("real"), repo.join("inner")).unwrap();
+        save_checked_mode(&repo, "inner", "new", None, false).unwrap();
+        assert_eq!(std::fs::read_to_string(repo.join("real")).unwrap(), "new");
     }
 }

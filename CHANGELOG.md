@@ -4,6 +4,13 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Security
+
+- The renderer content policy is now enabled in every build, so injected content cannot load scripts, frames or remote resources.
+- Connected-service tokens are given to Git only for commands that can contact a remote. Repository-configured programs started by status, log or diff no longer receive them.
+- Saving a file from the editor is refused when its path, or a symlink on the way, leads outside the repository.
+- Clone URLs can no longer be read as Git options, and the destination folder name is checked.
+
 ### Added
 
 - Join the GitCraft community from the Help menu.

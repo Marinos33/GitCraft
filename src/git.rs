@@ -185,6 +185,47 @@ pub fn credential_env(tokens: &[(String, String, String)]) -> Vec<(String, Strin
     env
 }
 
+/// The Git subcommand in an argument list, skipping global options and the values of `-c` / `-C`.
+pub fn subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i];
+        if a == "-c" || a == "-C" || a == "--git-dir" || a == "--work-tree" || a == "--namespace" {
+            i += 2;
+            continue;
+        }
+        if a.starts_with('-') {
+            i += 1;
+            continue;
+        }
+        return Some(a);
+    }
+    None
+}
+
+/// Subcommands that may contact a remote, directly or through the Git LFS smudge filter when they
+/// write files to the working folder. Only these receive the connected services' credentials.
+const CREDENTIAL_VERBS: &[&str] = &[
+    "fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "lfs",
+    "checkout", "switch", "reset", "restore", "merge", "rebase", "cherry-pick", "revert", "stash", "worktree",
+];
+
+pub fn needs_credentials(args: &[&str]) -> bool {
+    subcommand(args).is_some_and(|verb| CREDENTIAL_VERBS.contains(&verb))
+}
+
+/// Give Git the connected services' credentials, only when `args` is a command that can need them.
+pub fn add_credentials(c: &mut Command, args: &[&str]) {
+    if !needs_credentials(args) {
+        return;
+    }
+    if let Ok(t) = HOST_TOKENS.read() {
+        if !t.is_empty() {
+            c.envs(credential_env(&t));
+        }
+    }
+}
+
 pub fn git_cmd(dir: &Path) -> Command {
     // Preferences > Experimental > Git Executable, and SSH > private key (when the SSH agent isn't used).
     let rt = crate::prefs::runtime();
@@ -193,11 +234,9 @@ pub fn git_cmd(dir: &Path) -> Command {
     if let Some(ssh) = crate::prefs::ssh_command(&rt) {
         c.env("GIT_SSH_COMMAND", ssh);
     }
-    if let Ok(t) = HOST_TOKENS.read() {
-        if !t.is_empty() {
-            c.envs(credential_env(&t));
-        }
-    }
+    // Hosting tokens are NOT added here: see `add_credentials`. Read commands that run on their own
+    // (status, log, diff…) can start repository-configured programs (core.fsmonitor, hooks, aliases),
+    // which must not inherit the tokens.
     c.env("GIT_TERMINAL_PROMPT", "0");
     c.env("GIT_EDITOR", "true");
     c.env("GIT_SEQUENCE_EDITOR", "true");
@@ -211,7 +250,9 @@ pub fn run(dir: &Path, args: &[&str]) -> GitOut {
     if crate::read_jobs::has_context() || matches!(verb, "log" | "ls-remote" | "blame" | "status" | "show" | "diff" | "ls-files" | "cat-file" | "rev-list" | "for-each-ref") {
         return run_limited(dir, args, 64 * 1024 * 1024);
     }
-    match git_cmd(dir).args(args).output() {
+    let mut command = git_cmd(dir);
+    add_credentials(&mut command, args);
+    match command.args(args).output() {
         Ok(o) => GitOut {
             ok: o.status.success(),
             stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
@@ -222,12 +263,13 @@ pub fn run(dir: &Path, args: &[&str]) -> GitOut {
 }
 
 pub fn run_limited(dir: &Path, args: &[&str], limit: usize) -> GitOut {
-    let mut command = git_cmd(dir); command.args(args);
+    let mut command = git_cmd(dir); add_credentials(&mut command, args); command.args(args);
     crate::read_jobs::run(command, limit, None)
 }
 
 pub fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> GitOut {
     let mut c = git_cmd(dir);
+    add_credentials(&mut c, args);
     c.args(args);
     for (k, v) in env {
         c.env(k, v);
@@ -915,4 +957,39 @@ pub fn commit_file_entries(dir: &Path, commit: &Commit) -> Vec<CommitFile> {
         }
     }
     files
+}
+
+#[cfg(test)]
+mod credential_scope_tests {
+    use super::*;
+
+    #[test]
+    fn subcommand_skips_global_options_and_their_values() {
+        assert_eq!(subcommand(&["-c", "core.editor=true", "rebase", "--continue"]), Some("rebase"));
+        assert_eq!(subcommand(&["--literal-pathspecs", "-c", "diff.noprefix=false", "diff", "--"]), Some("diff"));
+        assert_eq!(subcommand(&["-C", "/tmp/repo", "fetch", "origin"]), Some("fetch"));
+        assert_eq!(subcommand(&["--version"]), None);
+    }
+
+    #[test]
+    fn only_commands_that_can_reach_a_remote_receive_tokens() {
+        for args in [&["fetch", "--all"][..], &["push", "origin", "main"], &["clone", "--progress", "--", "https://x/y"], &["-c", "a=b", "pull"], &["checkout", "dev"]] {
+            assert!(needs_credentials(args), "{args:?}");
+        }
+        for args in [&["status", "--porcelain"][..], &["log", "-n1"], &["diff", "HEAD"], &["show", "HEAD:file"], &["-c", "fetch=x", "status"], &["check-ignore", "--stdin"]] {
+            assert!(!needs_credentials(args), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn read_commands_do_not_inherit_tokens() {
+        set_host_tokens(vec![("scope.invalid".into(), "user".into(), "scope-secret".into())]);
+        let mut read = git_cmd(Path::new("."));
+        add_credentials(&mut read, &["status"]);
+        assert!(!read.get_envs().any(|(k, _)| k.to_string_lossy().starts_with("GITCRAFT_TOKEN_")));
+        let mut fetch = git_cmd(Path::new("."));
+        add_credentials(&mut fetch, &["fetch"]);
+        assert!(fetch.get_envs().any(|(k, v)| k.to_string_lossy() == "GITCRAFT_TOKEN_0" && v.is_some_and(|v| v == "scope-secret")));
+        set_host_tokens(Vec::new());
+    }
 }

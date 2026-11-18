@@ -88,3 +88,30 @@ jobs:
           name: browser-regressions
           path: target/verification/
           if-no-files-found: warn
+
+  clippy:
+    name: Rust lints (clippy)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Linux build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: clippy
+      # tauri::generate_context! needs the built front end; an empty dist is enough for linting.
+      - name: Provide a placeholder front end
+        run: mkdir -p ui/dist && echo "<!doctype html>" > ui/dist/index.html
+      # Correctness lints fail the job (they are deny-by-default); every other lint is reported as a
+      # warning so the existing backlog stays visible without blocking pull requests.
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -D clippy::correctness

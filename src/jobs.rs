@@ -103,6 +103,7 @@ impl Jobs {
     /// Runs git, reporting each progress line as (job id, text, percent). Can be cancelled by id.
     pub fn run(&self, id: &str, dir: &Path, args: &[&str]) -> GitOut {
         let mut cmd = git::git_cmd(dir);
+        git::add_credentials(&mut cmd, args);
         crate::process_tree::prepare(&mut cmd);
         cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut child = match cmd.spawn() {
