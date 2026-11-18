@@ -31,6 +31,7 @@ mod settings;
 mod shell;
 mod shot;
 mod terminal;
+mod updates;
 mod watch;
 mod watch_plan;
 #[cfg(test)]
@@ -752,14 +753,6 @@ async fn agent_sessions(path: String, paths: Option<Vec<String>>, claude_dir: Op
     }).await
 }
 
-/// Whether automatic updates are set up in this build (a public key is configured), and where they come from.
-#[tauri::command]
-fn update_config(app: tauri::AppHandle) -> serde_json::Value {
-    let u = app.config().plugins.0.get("updater").cloned().unwrap_or_default();
-    let configured = u["pubkey"].as_str().map(|k| !k.trim().is_empty()).unwrap_or(false);
-    serde_json::json!({ "configured": configured, "endpoint": u["endpoints"][0] })
-}
-
 /// File > Open Repo in <editor> (Preferences > External Tools > Editor); with `file`, open that file.
 #[tauri::command]
 fn open_in_editor(path: String, file: Option<String>) -> Result<(), String> {
@@ -1146,6 +1139,7 @@ fn main() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Updates::default())
         .plugin(tauri_plugin_process::init())
         .manage(AppState { engine: Arc::new(Engine::default()), screenshot: screenshot.clone(), shot_view, watchers: Arc::new(Mutex::new(HashMap::new())), terminals: terminal::Terminals::default() })
         .setup(move |app| {
@@ -1201,7 +1195,10 @@ fn main() {
             rebase_plan,
             read_ssh_public_key,
             gitflow_config,
-            update_config,
+            updates::update_config,
+            updates::update_check,
+            updates::update_download,
+            updates::update_install,
             ai_commit_message,
             ai_stash_message,
             ai_explain_commit,

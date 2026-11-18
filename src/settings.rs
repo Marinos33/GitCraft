@@ -44,6 +44,8 @@ pub struct Settings {
     pub external_terminal: String,
     pub terminal_path: String,
     pub terminal_args: String,
+    /// GitCraft updates: "stable" (full releases) or "beta" (every build of the main branch).
+    pub update_channel: String,
 }
 
 impl Default for Settings {
@@ -64,6 +66,7 @@ impl Default for Settings {
             external_terminal: "default".into(),
             terminal_path: String::new(),
             terminal_args: String::new(),
+            update_channel: "stable".into(),
         }
     }
 }
@@ -101,6 +104,7 @@ impl Settings {
             external_terminal: field(value, "externalTerminal").unwrap_or(d.external_terminal),
             terminal_path: field(value, "terminalPath").unwrap_or(d.terminal_path),
             terminal_args: field(value, "terminalArgs").unwrap_or(d.terminal_args),
+            update_channel: field(value, "updateChannel").unwrap_or(d.update_channel),
         }
     }
 

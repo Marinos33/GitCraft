@@ -81,6 +81,9 @@ export function GeneralSection() {
       <Row label="Automatically download GitCraft updates" help="Checks GitHub Releases and installs on restart.">
         <Toggle value={set.autoUpdate} onChange={(v) => put({ autoUpdate: v })} />
       </Row>
+      <Row label="Update channel" help="Stable receives full releases. Beta receives every new build first and may be less reliable.">
+        <Select value={set.updateChannel ?? "stable"} onChange={(v) => put({ updateChannel: v })} options={[["stable", "Stable"], ["beta", "Beta"]]} />
+      </Row>
       <Row label="Default folder for clone and init">
         <PathField folder title="Default folder" value={set.defaultCloneFolder} onSave={(v) => put({ defaultCloneFolder: v })} />
       </Row>

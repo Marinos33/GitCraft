@@ -172,6 +172,8 @@ export interface Settings {
   spellcheck: boolean;
   /** Check GitHub Releases for new versions and download them in the background. */
   autoUpdate: boolean;
+  /** Update channel: full releases, or every build of the main branch. */
+  updateChannel: "stable" | "beta";
   /** Starred repositories (Repository Management, start screen, Open Favorite Repo 1-9). */
   favorites: string[];
   /** Commit template: prefilled summary / description. */
@@ -399,6 +401,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tabWidths: {},
   spellcheck: true,
   autoUpdate: true,
+  updateChannel: "stable",
   favorites: [],
   templateSummary: "",
   templateDescription: "",

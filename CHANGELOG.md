@@ -14,16 +14,19 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 - A custom editor or terminal command, Git executable or AI program is now shown in a confirmation dialog with the exact command before GitCraft first uses it; declining keeps the previous choice. Commands already set up are kept as approved.
 - Changing a Git setting other than identity, signing choices and line endings now asks for confirmation, since such settings can name programs for Git to run.
 - Clone options that set Git configuration or programs (-c, --config, -u, --upload-pack, --template, --separate-git-dir) are refused.
+- The window no longer talks to the updater directly: GitCraft checks, downloads and installs updates itself, from the address of the chosen channel.
 
 ### Added
 
 - Join the GitCraft community from the Help menu.
+- Choose an update channel in Preferences > General: Stable for full releases, or Beta to receive every new build first.
 
 ### Changed
 
 - AI providers, model lists and hosting services now share one network connection setup. AI requests no longer follow redirects, so an API key is never sent on to another address; update the endpoint if the provider reports a redirect.
 - GitCraft now reads the Git executable, SSH key, logging, encoding, integration and AI preferences from its saved settings file at start-up and after each change, instead of receiving them separately from the window. A connection test or model list saves pending preference edits first.
 - Creating or copying a GPG key uses the GPG program set in Git's configuration.
+- New builds are published as pre-releases on the beta channel. Copies on the stable channel are updated only when a build is promoted to a full release.
 
 ### Fixed
 
