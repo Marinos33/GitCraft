@@ -553,7 +553,8 @@ mod tests {
         // A stand-in for `gitcraft --git-credential`, configured exactly as git_cmd configures it.
         let dir = tempfile::tempdir().unwrap();
         let script = dir.path().join("helper.sh");
-        std::fs::write(&script, "#!/bin/sh\ntest \"$2\" = get || exit 0\nprintf 'username=x-access-token\\npassword=secret123\\n'\n").unwrap();
+        let calls = dir.path().join("calls.log");
+        std::fs::write(&script, format!("#!/bin/sh\necho \"$*\" >> '{}'\ntest \"$2\" = get || exit 0\nprintf 'username=x-access-token\\npassword=secret123\\n'\n", calls.display())).unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let helper = crate::git::credential_helper(&script);
@@ -567,6 +568,13 @@ mod tests {
         ch.stdin.take().unwrap().write_all(b"protocol=https\nhost=github.com\npath=x/y.git\n\n").unwrap();
         let out = String::from_utf8_lossy(&ch.wait_with_output().unwrap().stdout).into_owned();
         assert!(out.contains("username=x-access-token") && out.contains("password=secret123"), "{out}");
+        // After a successful sign-in Git asks every helper to `store`; GitCraft is not started for it.
+        let mut c = std::process::Command::new("git");
+        c.args(["credential", "approve"]).envs(env.iter().cloned()).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null());
+        let mut ch = c.spawn().unwrap();
+        ch.stdin.take().unwrap().write_all(b"protocol=https\nhost=github.com\nusername=x-access-token\npassword=secret123\n\n").unwrap();
+        assert!(ch.wait().unwrap().success());
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "--git-credential get\n");
     }
 
     #[test]

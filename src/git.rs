@@ -174,12 +174,14 @@ pub fn set_credential_hosts(hosts: Vec<String>) {
 }
 
 /// The helper command line: this executable in `--git-credential` mode. Git runs a helper that
-/// starts with `!` through its shell and appends the operation (`get`, `store`, `erase`).
+/// starts with `!` through its shell and appends the operation (`get`, `store`, `erase`). Only
+/// `get` is answered, so the shell skips starting GitCraft for the others: each start loads the
+/// whole desktop program (about 25 ms), and Git asks to `store` after every successful sign-in.
 pub fn credential_helper(exe: &Path) -> String {
     let path = exe.to_string_lossy();
     // Git's shell on Windows reads forward slashes; single quotes keep every other byte literal.
     let path = if cfg!(windows) { path.replace('\\', "/") } else { path.into_owned() };
-    format!("!'{}' --git-credential", path.replace('\'', "'\\''"))
+    format!("!f() {{ test \"$1\" = get || exit 0; exec '{}' --git-credential get; }}; f", path.replace('\'', "'\\''"))
 }
 
 /// Config (through GIT_CONFIG_COUNT, so nothing shows in the command line or the activity log) that
@@ -967,7 +969,7 @@ mod credential_scope_tests {
     #[test]
     fn the_helper_command_quotes_the_executable_and_carries_no_secret() {
         let helper = credential_helper(Path::new("/opt/Git Craft/it's/gitcraft"));
-        assert_eq!(helper, "!'/opt/Git Craft/it'\\''s/gitcraft' --git-credential");
+        assert_eq!(helper, "!f() { test \"$1\" = get || exit 0; exec '/opt/Git Craft/it'\\''s/gitcraft' --git-credential get; }; f");
         let env = credential_env(&["github.com".into(), "bad\nhost".into()], &helper);
         let get = |k: &str| env.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone()).unwrap_or_default();
         assert_eq!(get("GIT_CONFIG_COUNT"), "2");
@@ -1003,7 +1005,7 @@ mod credential_scope_tests {
         let command = git_cmd(dir.path());
         let env: Vec<_> = command.get_envs().map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()).unwrap_or_default())).collect();
         assert!(env.iter().any(|(k, v)| k == "GIT_CONFIG_KEY_1" && v == "credential.https://scope.invalid.helper"));
-        assert!(env.iter().any(|(k, v)| k == "GIT_CONFIG_VALUE_1" && v.ends_with("--git-credential")));
+        assert!(env.iter().any(|(k, v)| k == "GIT_CONFIG_VALUE_1" && v.contains("--git-credential get")));
         assert!(!env.iter().any(|(k, _)| k.starts_with("GITCRAFT_")));
     }
 }

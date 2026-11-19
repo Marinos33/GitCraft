@@ -1,6 +1,7 @@
 // What the Rust side reports once at start-up (launch_options) and the progress of long Git jobs
 // ("job-progress" events). Both come from the back end, so they live in the react-query cache,
 // not in the window's zustand store.
+import { useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type JobProgress, type Metrics } from "./api";
 import { queryClient } from "./query-client";
@@ -26,9 +27,15 @@ export function launchOptions(): LaunchOptions {
 
 export const launchMetrics = (): Metrics => launchOptions().metrics;
 
-/** The launch options in a component; start-up fills the cache, so this never starts a request. */
+/** Calls `changed` when the launch options are written to the cache (once, at start-up). */
+function subscribeLaunch(changed: () => void) {
+  return queryClient.getQueryCache().subscribe((event) => { if (event.query.queryKey[0] === LAUNCH_KEY[0]) changed(); });
+}
+
+/** The launch options in a component. Every graph row reads them, so this is a plain cache
+ *  subscription rather than a query observer (about three times cheaper to mount). */
 export function useLaunchOptions(): LaunchOptions {
-  return useQuery({ queryKey: LAUNCH_KEY, queryFn: readLaunch, enabled: false, staleTime: Infinity, gcTime: Infinity }).data ?? DEFAULT_LAUNCH;
+  return useSyncExternalStore(subscribeLaunch, launchOptions, launchOptions);
 }
 
 export const useMetrics = (): Metrics => useLaunchOptions().metrics;
