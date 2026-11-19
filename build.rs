@@ -66,7 +66,13 @@ fn main() {
 
     // Rebuild the React front end when its sources change, so a plain `cargo build`
     // always embeds the current UI. If npm isn't available the existing ui/dist is used.
-    println!("cargo:rerun-if-changed=ui/src");
+    // ui/src/bindings is left out: `cargo test` rewrites those generated type files every run,
+    // and they hold TypeScript types only, so they never change the built front end.
+    for entry in std::fs::read_dir("ui/src").into_iter().flatten().flatten() {
+        if entry.file_name() != "bindings" {
+            println!("cargo:rerun-if-changed={}", entry.path().display());
+        }
+    }
     println!("cargo:rerun-if-changed=ui/index.html");
     println!("cargo:rerun-if-changed=ui/package.json");
     println!("cargo:rerun-if-changed=ui/package-lock.json");

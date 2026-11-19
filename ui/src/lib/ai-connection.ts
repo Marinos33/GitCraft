@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { DEFAULT_AI, useStore } from "./store";
+import { flushPersistence } from "./persistence";
 
-/** Bind every operation to its own connection snapshot, including connection tests. */
+/** AI requests use the connection saved in the settings file. Pending preference edits are saved
+ *  first, so a test or model list right after a change uses that change. */
 export async function invokeAi<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  const config = { ...DEFAULT_AI, ...useStore.getState().settings.ai };
-  return invoke<T>(command, { ...args, config });
+  await flushPersistence();
+  return invoke<T>(command, args);
 }

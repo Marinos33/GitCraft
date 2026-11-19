@@ -22,6 +22,7 @@ import { Button } from "./ui/button";
 import { StatusIcon } from "./Icons";
 import { MonacoDiff, MonacoFile, type DiffHandle } from "./LazyEditors";
 import { cn } from "@/lib/utils";
+import { useMetrics } from "@/lib/launch";
 
 export function sourceLabel(src: DiffSource, shaLen: number) {
   switch (src.kind) {
@@ -38,7 +39,7 @@ export function sourceLabel(src: DiffSource, shaLen: number) {
 
 /** A file's changes, opened over the graph: Hunk / Inline / Split diff, or File View. */
 export function DiffView({ repo, tabId, target }: { repo: RepoView; tabId: string; target: DiffTarget }) {
-  const s = { ...useStore(useShallow((st) => ({ metrics: st.metrics, setDialog: st.setDialog, setSettings: st.setSettings, setUi: st.setUi, toast: st.toast }))), settings: useStore(useShallow((st) => ({ diffMode: st.settings.diffMode, ignoreWhitespace: st.settings.ignoreWhitespace, wordWrap: st.settings.wordWrap }))) };
+  const s = { metrics: useMetrics(), ...useStore(useShallow((st) => ({ setDialog: st.setDialog, setSettings: st.setSettings, setUi: st.setUi, toast: st.toast }))), settings: useStore(useShallow((st) => ({ diffMode: st.settings.diffMode, ignoreWhitespace: st.settings.ignoreWhitespace, wordWrap: st.settings.wordWrap }))) };
   const set = s.settings;
   const m = s.metrics;
   const [view, setView] = useState<"diff" | "file">("diff");

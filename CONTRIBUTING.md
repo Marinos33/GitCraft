@@ -22,6 +22,8 @@ cargo test --locked
 node --test scripts/changelog-release.test.mjs
 ```
 
+The TypeScript types for the window's calls into Rust live in `ui/src/bindings` and are generated from the Rust types by `cargo test`. Commit them with the Rust change; the test workflow fails when they are out of date.
+
 Run the app with `cargo run --locked` and exercise the affected behavior in a disposable repository. For Git operations, check the resulting branch, index, and working tree as well as the visible result.
 
 See [TESTING.md](TESTING.md) for Ubuntu/WSL and macOS setup and the desktop smoke-test checklist. Pull requests run the test workflow on Windows, Ubuntu, and macOS.

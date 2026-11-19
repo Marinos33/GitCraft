@@ -10,6 +10,8 @@ use std::process::Command;
 use std::os::windows::process::CommandExt;
 
 #[derive(Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct SshKey {
     pub path: String,
     pub kind: String,
@@ -17,6 +19,8 @@ pub struct SshKey {
 }
 
 #[derive(Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct GpgKey {
     pub id: String,
     pub fingerprint: String,
@@ -24,6 +28,8 @@ pub struct GpgKey {
 }
 
 #[derive(Serialize, Default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct AccountInfo {
     /// Global identity (and this repository's override, if any).
     pub name: String,

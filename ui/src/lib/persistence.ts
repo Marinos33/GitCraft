@@ -1,5 +1,5 @@
 import { api } from "./api";
-import { useStore } from "./store";
+import { useStore, type Settings } from "./store";
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 let writes = Promise.resolve();
@@ -17,8 +17,13 @@ export async function flushPersistence() {
     const value = snapshot();
     dirty = false;
     const next = writes.catch(() => undefined).then(() => api.saveSettings(value));
-    writes = next;
-    try { await next; } catch (error) { dirty = true; throw error; }
+    writes = next.then(() => undefined);
+    // The failure is reported by `await next` below; mark the chained copy as handled too.
+    writes.catch(() => undefined);
+    let restored: Record<string, unknown> | null | undefined;
+    try { restored = await next; } catch (error) { dirty = true; throw error; }
+    // Commands that were not approved keep their previous values; show those again.
+    if (restored && Object.keys(restored).length) useStore.getState().setSettings(restored as Partial<Settings>);
   }
 }
 export function startPersistence() {

@@ -1,8 +1,8 @@
-# Renderer content policy prototype
+# Renderer content policy
 
-`tauri.csp.conf.json` is an opt-in packaged-build configuration. Build it with
-`npm --prefix ui run build`, then `./ui/node_modules/.bin/tauri build --config tauri.csp.conf.json` from the app root.
-The default policy remains unchanged until packaged validation passes.
+The content security policy is set in `tauri.conf.json` (`app.security.csp`) and
+applies to every build, including releases. It was previously an opt-in
+configuration (`tauri.csp.conf.json`); it is now the default.
 
 Source inventory (2026-11-17):
 
@@ -14,16 +14,14 @@ Source inventory (2026-11-17):
 - Links launch through native commands. Embedded frames, plugins, forms and injected base URLs are unnecessary.
 - No eval permission is included. Development-server HMR is outside this packaged policy.
 
-Before enabling this configuration by default, test an installed build on Windows,
-Linux and macOS: cold launch; file/diff editors and language worker startup;
-image previews and avatars; preferences; notifications; all dialogs; native
-account requests; update discovery and restart. Record CSP violations and actual
-worker/IPC origins for each platform. A browser harness cannot establish these
-packaged webview results.
+Why it matters: the renderer can call powerful native commands (terminal, external
+tools, file saves). Without a policy, any injected markup would be one step away
+from running programs on the user's machine.
 
-Windows release-executable validation now passes IPC, editor/JSON workers, data
-images, the HTTPS avatar source, preferences and native updater configuration,
-with zero recorded CSP violations or renderer exceptions. See
-[continuation validation](continuation-validation-2026-11-17.md) and the repeatable
-[Windows harness](../TESTING.md#windows-release-webview-regression-checks).
-This does not establish signed update installation or installed macOS/Linux behavior.
+Validation: the Windows release executable passes IPC, editor/JSON workers, data
+images, the HTTPS avatar source, preferences and native updater configuration with
+zero recorded CSP violations or renderer exceptions (see the
+[Windows harness](../TESTING.md#windows-release-webview-regression-checks)).
+Installed macOS/Linux builds should still be smoke-tested: cold launch, editors and
+language workers, image previews and avatars, dialogs, account requests, update
+discovery and restart. Record any CSP violation reported in the webview console.

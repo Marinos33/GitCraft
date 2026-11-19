@@ -16,7 +16,7 @@ vi.mock("./ConflictView", () => ({ ConflictView: () => <div>retained-conflict-ed
 vi.mock("./RightPanel", () => ({ RightPanel: () => <div>retained-commit-panel</div> }));
 vi.mock("./LeftPanel", () => ({ LeftPanel: () => null, LeftStrip: () => null }));
 vi.mock("./Toolbar", () => ({ Toolbar: () => null }));
-const repo: RepoView = { path: "/retained", name: "retained", commits: [], refs: [], stashes: [], worktrees: [], submodules: [], remotes: [], head_branch: "main", head_sha: "a", status: { staged: [], unstaged: [], conflicted: false }, state_note: null, has_more: false, merge_msg: null, conflict_labels: null, graph: { rows: [], width: 1 }, undo: { undo: null, redo: null } };
+const repo: RepoView = { path: "/retained", name: "retained", commits: [], refs: [], stashes: [], worktrees: [], submodules: [], remotes: [], head_branch: "main", head_sha: "a", status: { staged: [], unstaged: [], conflicted: false }, state_note: null, has_more: false, merge_msg: null, conflict_labels: null, graph: { rows: [], width: 1 }, history_cursor: null, undo: { undo: null, redo: null } };
 afterEach(() => { releaseRepo(repo.path); queryClient.clear(); vi.restoreAllMocks(); useStore.setState(useStore.getInitialState(), true); });
 it.each(["diff", "conflict"] as const)("keeps the %s editor mounted when its repository tab becomes inactive", async (view) => {
   vi.spyOn(api, "openRepo").mockResolvedValue(repo);

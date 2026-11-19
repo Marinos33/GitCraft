@@ -8,6 +8,7 @@ import { PROFILE_COLORS, ProfileMark } from "./Icons";
 import { switchProfile } from "@/lib/prefs";
 import { cn, MOD } from "@/lib/utils";
 import { NotificationMenu } from "./NotificationMenu";
+import { launchMetrics } from "@/lib/launch";
 
 const DEFAULT_TAB_WIDTH = 97;
 const MIN_TAB_WIDTH = 76;
@@ -29,7 +30,7 @@ function slideTab(el: HTMLElement, fromX: number) {
   const inFlightX = new DOMMatrixReadOnly(getComputedStyle(el).transform).m41;
   el.getAnimations().forEach((animation) => animation.cancel());
   if (!fromX || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  el.animate([{ transform: `translateX(${fromX + inFlightX}px)` }, { transform: "translateX(0)" }], { duration: useStore.getState().metrics.tab_slide_ms, easing: "ease" });
+  el.animate([{ transform: `translateX(${fromX + inFlightX}px)` }, { transform: "translateX(0)" }], { duration: launchMetrics().tab_slide_ms, easing: "ease" });
 }
 
 type TabDrag = { id: string; pointerId: number; startX: number; originLeft: number; dx: number; active: boolean; scale: number; order: string[] };

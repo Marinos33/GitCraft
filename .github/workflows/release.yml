@@ -188,10 +188,10 @@ jobs:
             fi
           fi
 
-          # Use a published tag as the baseline, even when several builds
-          # started before main's changelog could be archived.
+          # Use a published tag (pre-releases included: every build of main is one) as the
+          # baseline, even when several builds started before main's changelog could be archived.
           published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')
+            --jq '.[] | select(.draft == false) | .tag_name')
           versions=$(printf '%s\n' "$published" "$tag" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vu)
           newest=$(tail -n 1 <<<"$versions")
           if [[ "$newest" != "$tag" ]]; then
@@ -214,8 +214,17 @@ jobs:
           if [[ -n "${release:-}" ]]; then
             gh release edit "$tag" --notes-file release-notes.md
           else
-            gh release create "$tag" --draft --target "$GITHUB_SHA" --title "GitCraft $tag" --notes-file release-notes.md
+            gh release create "$tag" --draft --prerelease --target "$GITHUB_SHA" --title "GitCraft $tag" --notes-file release-notes.md
           fi
           gh release upload "$tag" release-assets/* --clobber
 
-          gh release edit "$tag" --draft=false --latest=true
+          # Builds of main are pre-releases: installed copies on the stable channel keep reading
+          # the newest full release until a version is promoted (promote.yml).
+          gh release edit "$tag" --draft=false --prerelease --latest=false
+
+          # The beta channel reads latest.json from one rolling release, rewritten by each build.
+          if ! gh release view beta >/dev/null 2>&1; then
+            gh release create beta --prerelease --latest=false --target "$GITHUB_SHA" --title "GitCraft beta" \
+              --notes "Update channel for beta builds. Each build of main replaces latest.json here; installers are attached to the versioned pre-releases."
+          fi
+          gh release upload beta release-channel/latest.json --clobber

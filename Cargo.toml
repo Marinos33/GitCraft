@@ -23,7 +23,6 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 portable-pty = "0.9"
-ureq = { version = "2", features = ["json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "system-proxy"] }
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
@@ -31,6 +30,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 encoding_rs = "0.8"
 tempfile = "3"
+sha2 = "0.10"
+ts-rs = "12"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

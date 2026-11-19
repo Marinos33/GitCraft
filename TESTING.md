@@ -81,11 +81,11 @@ The checks exercise actual React components and Monaco with synthetic backend re
 
 ## Windows release-webview regression checks
 
-Build the production renderer, then a release executable with the optional policy:
+Build the production renderer, then a release executable (the content policy is part of the default configuration):
 
 ```powershell
 npm --prefix ui run build
-./ui/node_modules/.bin/tauri.cmd build --no-bundle --config tauri.csp.conf.json
+./ui/node_modules/.bin/tauri.cmd build --no-bundle
 node scripts/verify-desktop.mjs release csp
 ```
 

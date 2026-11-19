@@ -47,9 +47,15 @@ bundle("linux", ".AppImage", ["linux-x86_64"]);
 bundle("linux", ".deb");
 bundle("linux", ".rpm");
 
-writeFileSync(join(output, "latest.json"), JSON.stringify({
+// The same manifest is attached to the versioned pre-release (read by the stable channel once the
+// version is promoted) and rewritten on the rolling "beta" release (read by the beta channel).
+// Its download addresses always point at the versioned release.
+const manifest = JSON.stringify({
   version,
   notes: `Release notes: https://github.com/${repo}/releases/tag/v${version}`,
   pub_date: new Date().toISOString(),
   platforms,
-}, null, 2) + "\n");
+}, null, 2) + "\n";
+writeFileSync(join(output, "latest.json"), manifest);
+mkdirSync("release-channel");
+writeFileSync(join("release-channel", "latest.json"), manifest);

@@ -5,9 +5,9 @@ import { createPortal } from "react-dom";
 import type { GitRef, RepoView } from "@/lib/api";
 import { act } from "@/lib/repo";
 import { branchMenu } from "@/lib/menus";
-import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { CtxMenu } from "./ui/menu";
+import { useMetrics } from "@/lib/launch";
 
 interface Props {
   repo: RepoView;
@@ -21,7 +21,7 @@ interface Props {
 
 /** Expand grouped refs into a colored label stack, outside the virtual scroller. */
 export function CommitRefs({ repo, refs, color, hovered, selected, onSelect, onHover }: Props) {
-  const m = useStore((s) => s.metrics);
+  const m = useMetrics();
   const id = useId();
   const anchor = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);

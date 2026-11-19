@@ -230,16 +230,14 @@ fn interactive_reword_supports_apostrophes_in_repository_paths() {
 #[test]
 fn conflict_reader_and_resolution_round_trip_the_repository_encoding() {
     let folder = fixture("gitcraft-conflict-encoding-"); let path = folder.path();
-    let original = crate::prefs::runtime();
-    let mut settings = original.clone();
-    settings.encodings.insert(path.to_string_lossy().into_owned(), "windows-1252".into());
-    crate::prefs::set_runtime(settings);
+    let original = (*crate::settings::current()).clone();
+    crate::settings::set(original.clone().with_encoding(&path.to_string_lossy(), "windows-1252"));
     std::fs::write(path.join("file.txt"), b"<<<<<<< HEAD\ncaf\xe9\n=======\nother\n>>>>>>> incoming\n").unwrap();
     let info = crate::rewrite::conflict_info(path, "file.txt");
     let readable = info.working.as_deref().is_some_and(|text| text.contains("café"));
     let save = crate::files::save_checked_mode(path, "file.txt", "café\n", None, false);
     let bytes = std::fs::read(path.join("file.txt")).unwrap();
-    crate::prefs::set_runtime(original);
+    crate::settings::set(original);
     assert!(readable);
     assert!(save.is_ok());
     assert_eq!(bytes, b"caf\xe9\n");
@@ -510,7 +508,7 @@ fn unborn_patch_exports_working_edits_relative_to_the_empty_tree() {
 fn selected_ssh_keys_are_passed_as_literal_shell_arguments() {
     let f=fixture("gitcraft-ssh-literal-");let d=f.path();
     let key="C:/keys/key$(printf EXPANDED)`echo BAD`' spaced";
-    let settings=crate::prefs::RuntimeSettings {ssh_use_agent:false,ssh_private_key:key.into(),..Default::default()};
+    let settings=crate::settings::Settings {ssh_use_agent:false,ssh_private_key:key.into(),..Default::default()};
     let command=crate::prefs::ssh_command(&settings).unwrap();
     let alias=format!("alias.audit-key=!f() {{ printf '%s\\n' \"$@\"; }}; {}",command.replacen("ssh ","f ",1));
     let output=git::run(d,&["-c",&alias,"audit-key"]);assert!(output.ok,"{}",output.message());
@@ -591,12 +589,12 @@ fn lfs_initialization_failures_preserve_the_created_repository_and_report_recove
 #[test]
 fn explicit_utf8_conversion_preserves_unsupported_characters_in_future_saves() {
     let f=fixture("gitcraft-explicit-utf8-");let d=f.path();let bytes=b"caf\xe9\n";
-    crate::prefs::set_runtime(crate::prefs::RuntimeSettings {encodings:[(d.to_string_lossy().into_owned(),"windows-1252".into())].into(),ssh_use_agent:true,..Default::default()});
+    let original=(*crate::settings::current()).clone();crate::settings::set(crate::settings::Settings::default().with_encoding(&d.to_string_lossy(),"windows-1252"));
     std::fs::write(d.join("file.txt"),bytes).unwrap();let token=crate::files::content_token(Some(bytes));
     assert!(crate::files::save_checked_mode(d,"file.txt","café 😀\n",Some(&token),false).is_err());assert_eq!(std::fs::read(d.join("file.txt")).unwrap(),bytes);
     crate::files::save_checked_mode(d,"file.txt","café 😀\n",Some(&token),true).unwrap();let converted=std::fs::read(d.join("file.txt")).unwrap();assert!(converted.starts_with(&[0xef,0xbb,0xbf]));
     crate::files::save_checked_mode(d,"file.txt","café 😀 next\n",Some(&crate::files::content_token(Some(&converted))),false).unwrap();
-    assert!(std::fs::read_to_string(d.join("file.txt")).unwrap().contains("😀 next"));crate::prefs::set_runtime(crate::prefs::RuntimeSettings {ssh_use_agent:true,..Default::default()});
+    assert!(std::fs::read_to_string(d.join("file.txt")).unwrap().contains("😀 next"));crate::settings::set(original);
 }
 
 #[test]
@@ -783,18 +781,15 @@ fn signing_booleans_normalize_and_explicit_false_overrides_includes() {
 
 #[test]
 fn credential_usernames_are_literal_protocol_data_not_shell_code() {
-    use std::io::Write;
-    let folder=tempfile::tempdir().unwrap();
+    let helper=git::credential_helper(std::path::Path::new("/opt/gitcraft"));let env=git::credential_env(&["fixture.invalid".into()],&helper);
     for user in ["normal@example.test","o'connor@example.test","space name","dollar$NAME","back`tick","semi;colon&pipe|name"] {
-        let token="synthetic-token-privacy";let env=git::credential_env(&[("fixture.invalid".into(),user.into(),token.into())]);
-        assert!(!env.iter().filter(|(key,_)|key.starts_with("GIT_CONFIG_VALUE_")).any(|(_,value)|value.contains(user)||value.contains(token)));
-        let mut child=std::process::Command::new("git").current_dir(folder.path()).args(["credential","fill"])
-            .env("GIT_CONFIG_NOSYSTEM","1").env("GIT_CONFIG_GLOBAL",folder.path().join("empty-config")).env("GIT_TERMINAL_PROMPT","0").envs(env)
-            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
-        child.stdin.take().unwrap().write_all(b"protocol=https\nhost=fixture.invalid\n\n").unwrap();let output=child.wait_with_output().unwrap();assert!(output.status.success());
-        let text=String::from_utf8(output.stdout).unwrap();assert!(text.lines().any(|line|line==format!("username={user}")));assert!(text.lines().any(|line|line==format!("password={token}")));
+        let token="synthetic-token-privacy";
+        // The helper configuration names only the executable: user names and tokens never reach a shell.
+        assert!(!env.iter().any(|(_,value)|value.contains(user)||value.contains(token)));
+        let text=git::credential_reply("get","protocol=https\nhost=fixture.invalid\n\n",|host|(host=="fixture.invalid").then(||(user.to_string(),token.to_string())));
+        assert!(text.lines().any(|line|line==format!("username={user}")));assert!(text.lines().any(|line|line==format!("password={token}")));
     }
-    assert!(git::credential_env(&[("fixture.invalid".into(),"bad\nname".into(),"synthetic".into())]).is_empty());
+    assert!(git::credential_reply("get","protocol=https\nhost=fixture.invalid\n\n",|_|Some(("bad\nname".into(),"synthetic".into()))).is_empty());
 }
 
 #[test]
@@ -920,10 +915,10 @@ fn branch_creation_undo_uses_its_branch_ref_when_a_tag_has_the_same_name() {
 
 #[test]
 fn undecodable_editor_previews_keep_original_bytes_until_explicit_conversion() {
-    struct Restore(crate::prefs::RuntimeSettings);impl Drop for Restore {fn drop(&mut self){crate::prefs::set_runtime(self.0.clone());}}
-    let original=crate::prefs::runtime();let _restore=Restore(original.clone());
+    struct Restore(crate::settings::Settings);impl Drop for Restore {fn drop(&mut self){crate::settings::set(self.0.clone());}}
+    let original=(*crate::settings::current()).clone();let _restore=Restore(original.clone());
     for (encoding,bytes,loss) in [("",b"caf\xe9\n".to_vec(),true),("windows-1252",b"caf\xe9\n".to_vec(),false),("shift_jis",vec![b'x',0x82,b'\n'],true),("",b"valid utf8\n".to_vec(),false)] {
-        let folder=fixture("gitcraft-decoding-loss-");let d=folder.path();let mut settings=original.clone();settings.encodings.remove(&d.to_string_lossy().to_string());if !encoding.is_empty(){settings.encodings.insert(d.to_string_lossy().into_owned(),encoding.into());}crate::prefs::set_runtime(settings);
+        let folder=fixture("gitcraft-decoding-loss-");let d=folder.path();let mut settings=original.clone();settings.repo_prefs.remove(&d.to_string_lossy().to_string());if !encoding.is_empty(){settings=settings.with_encoding(&d.to_string_lossy(),encoding);}crate::settings::set(settings);
         std::fs::write(d.join("file.txt"),&bytes).unwrap();let preview=crate::files::versions(d,&git::DiffSource::Unstaged,"file.txt",None,false);
         assert_eq!(preview.decoding_loss,loss);assert_eq!(preview.editable,!loss);let text=preview.new.unwrap()+"added\n";
         let result=crate::files::save_checked_mode(d,"file.txt",&text,preview.new_token.as_deref(),false);

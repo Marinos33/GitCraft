@@ -26,7 +26,7 @@ it("reports a failed shutdown save and allows retry", async () => {
 
 it("includes edits made while an earlier save is in flight", async () => {
   let finish!:()=>void;
-  const save=vi.spyOn(api,"saveSettings").mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=resolve;})).mockResolvedValue(undefined);
+  const save=vi.spyOn(api,"saveSettings").mockImplementationOnce(()=>new Promise<undefined>(resolve=>{finish=()=>resolve(undefined);})).mockResolvedValue(undefined);
   const stop=startPersistence();useStore.getState().setSettings({rememberTabs:false});const flush=flushPersistence();
   await Promise.resolve();await Promise.resolve();
   useStore.getState().setSettings({rememberTabs:true});finish();await flush;
@@ -37,7 +37,7 @@ it("coalesces repeated close requests, retries failure and waits for edits durin
   vi.useFakeTimers();
   let finish!:()=>void;
   const save=vi.spyOn(api,"saveSettings").mockRejectedValueOnce(new Error("disk full"))
-    .mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=resolve;})).mockResolvedValue(undefined);
+    .mockImplementationOnce(()=>new Promise<undefined>(resolve=>{finish=()=>resolve(undefined);})).mockResolvedValue(undefined);
   const stop=startPersistence(); const close=vi.fn().mockResolvedValue(undefined);const report=vi.fn();
   const guard=preferenceCloseGuard(close,report);const preventDefault=vi.fn();
   useStore.getState().setSettings({rememberTabs:false});guard({preventDefault});guard({preventDefault});
@@ -46,4 +46,17 @@ it("coalesces repeated close requests, retries failure and waits for edits durin
   useStore.getState().setSettings({rememberTabs:true});finish();await vi.waitFor(()=>expect(close).toHaveBeenCalledTimes(1));
   expect(save).toHaveBeenCalledTimes(3);const count=preventDefault.mock.calls.length;guard({preventDefault});
   expect(preventDefault).toHaveBeenCalledTimes(count);stop();
+});
+
+it("shows again the previous values of commands that were not approved", async () => {
+  const save=vi.spyOn(api,"saveSettings").mockResolvedValueOnce({externalEditor:"vscode",editorPath:""}).mockResolvedValue(null);
+  const stop=startPersistence();
+  try {
+    useStore.getState().setSettings({externalEditor:"custom",editorPath:"/tmp/editor"});
+    await flushPersistence();
+    expect(useStore.getState().settings).toMatchObject({externalEditor:"vscode",editorPath:""});
+    await flushPersistence();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({settings:expect.objectContaining({externalEditor:"vscode",editorPath:""})}));
+  } finally { stop(); save.mockRestore(); }
 });

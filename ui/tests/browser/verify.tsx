@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import "../../src/index.css";
+import { setJobProgress } from "../../src/lib/launch";
 
 const calls: { command: string; args: any }[] = [];
 let handlers: Record<string, (args: any) => any> = {};
@@ -610,7 +611,7 @@ await test("S003 large commit panel ignores unrelated drafts settings and progre
   await until(()=>document.body.textContent?.includes("file-0.txt")??false,"large commit files");await sleep(150);const before=commits;
   for(let i=0;i<20;i++)flushSync(()=>useStore.getState().setDraft("/unrelated/repo",{summary:`draft ${i}`}));
   flushSync(()=>useStore.getState().setSettings({autoFetchMin:37}));
-  flushSync(()=>useStore.setState({job:{id:"fixture",text:"Progress",percent:20},busy:"Fixture"}));await sleep(30);
+  flushSync(()=>{setJobProgress({id:"fixture",text:"Progress",percent:20});useStore.setState({busy:"Fixture"});});await sleep(30);
   assert(commits===before,`Large commit panel rendered ${commits-before} unrelated commits`);
   results.push({id:"S003 commit panel profile",status:"measurement",unrelatedUpdates:22,renderCommits:commits-before});
 });

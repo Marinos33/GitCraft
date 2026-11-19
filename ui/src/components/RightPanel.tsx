@@ -33,6 +33,7 @@ import { cn, fullDate, mix, MOD, withCoauthors } from "@/lib/utils";
 import { applyPatch, composeCommits, explainCommit, generateCommitMessage, generateStashTitle, patchName, savePatch } from "@/lib/ai";
 
 import { workingChanges } from "@/lib/working-changes";
+import { useMetrics } from "@/lib/launch";
 
 /** Right panel: staging and committing (WIP) or the details of a selected commit. */
 export function RightPanel({ repo, tabId }: { repo: RepoView; tabId: string }) {
@@ -211,7 +212,7 @@ function FileList({
 
 
 function WorkPanel({ repo, tabId }: { repo: RepoView; tabId: string }) {
-  const s = { ...useStore(useShallow((st) => ({ metrics: st.metrics, setDraft: st.setDraft, setSettings: st.setSettings, setUi: st.setUi, toast: st.toast }))), settings: useStore(useShallow((st) => ({ fileSort: st.settings.fileSort, fileView: st.settings.fileView, pushAfterCommit: st.settings.pushAfterCommit, skipHooks: st.settings.skipHooks, spellcheck: st.settings.spellcheck, stripComments: st.settings.stripComments, useCommitTemplate: st.settings.useCommitTemplate, templateSummary: st.settings.templateSummary, templateDescription: st.settings.templateDescription }))) };
+  const s = { metrics: useMetrics(), ...useStore(useShallow((st) => ({ setDraft: st.setDraft, setSettings: st.setSettings, setUi: st.setUi, toast: st.toast }))), settings: useStore(useShallow((st) => ({ fileSort: st.settings.fileSort, fileView: st.settings.fileView, pushAfterCommit: st.settings.pushAfterCommit, skipHooks: st.settings.skipHooks, spellcheck: st.settings.spellcheck, stripComments: st.settings.stripComments, useCommitTemplate: st.settings.useCommitTemplate, templateSummary: st.settings.templateSummary, templateDescription: st.settings.templateDescription }))) };
   const ui = useTabUi(tabId);
   const draft = useStore((st) => st.drafts[repo.path]) ?? { summary: "", description: "", amend: false };
   const [tab, setTab] = useState<"commit" | "stash" | "patch">("commit");
@@ -595,7 +596,7 @@ function TabBtn({ active, onClick, children, title }: { active: boolean; onClick
 }
 
 function CommitDetails({ repo, tabId, commit: c }: { repo: RepoView; tabId: string; commit: Commit }) {
-  const s = useStore(useShallow((st) => ({ metrics: st.metrics, setUi: st.setUi })));
+  const s = { ...useStore(useShallow((st) => ({ setUi: st.setUi }))), metrics: useMetrics() };
   const ui = useTabUi(tabId);
   const files = useQuery({ queryKey: ["commitFiles", repo.path, c.sha], queryFn: ({ signal }) => api.commitFiles(repo.path, c.sha, signal), staleTime: Infinity });
   const counts = useMemo(() => {
@@ -669,7 +670,7 @@ function FileQueryStatus({ query }: { query: { isLoading: boolean; isError: bool
 
 /** Two commits (or a commit and the working folder): the files that differ and their diffs. */
 function ComparePanel({ repo, tabId, from, to }: { repo: RepoView; tabId: string; from: string; to: string }) {
-  const s = useStore(useShallow((st) => ({ metrics: st.metrics, setUi: st.setUi })));
+  const s = { ...useStore(useShallow((st) => ({ setUi: st.setUi }))), metrics: useMetrics() };
   const ui = useTabUi(tabId);
   const n = s.metrics.sha_len;
   const files = useQuery({
@@ -706,7 +707,7 @@ function ComparePanel({ repo, tabId, from, to }: { repo: RepoView; tabId: string
 
 /** Three or more commits picked: what can be done with them together. */
 function MultiPanel({ repo, tabId }: { repo: RepoView; tabId: string }) {
-  const s = useStore(useShallow((st) => ({ metrics: st.metrics, setUi: st.setUi })));
+  const s = { ...useStore(useShallow((st) => ({ setUi: st.setUi }))), metrics: useMetrics() };
   const ui = useTabUi(tabId);
   const picked = repo.commits.filter((c) => ui.multi.includes(c.sha));
   const oldestFirst = [...picked].reverse().map((c) => c.sha);

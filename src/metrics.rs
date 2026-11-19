@@ -87,6 +87,8 @@ pub const TAB_SLIDE_TIME_MS: u32 = 250;
 pub const WIP_BOX_STATS_SPACE: u32 = 75;
 
 #[derive(Serialize, Clone)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Metrics {
     pub node: u32,
     pub avatar_inner: u32,

@@ -1,5 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useStore } from "./store";
+import { launchMetrics } from "./launch";
 
 /** Apply a zoom factor (100 % = 1). */
 export function setZoom(z: number) {
@@ -13,7 +14,8 @@ export function setZoom(z: number) {
 
 /** Zoom in / out moves to the next entry of ZOOM_FACTORS (80 % … 300 %). */
 export function stepZoom(dir: 1 | -1) {
-  const { metrics, settings } = useStore.getState();
+  const metrics = launchMetrics();
+  const { settings } = useStore.getState();
   const levels = [...metrics.zoom_factors].sort((a, b) => a - b);
   const cur = settings.zoom;
   const next = dir === 1 ? levels.find((l) => l > cur + 1e-6) : [...levels].reverse().find((l) => l < cur - 1e-6);
@@ -21,5 +23,5 @@ export function stepZoom(dir: 1 | -1) {
 }
 
 export function resetZoom() {
-  setZoom(useStore.getState().metrics.default_zoom);
+  setZoom(launchMetrics().default_zoom);
 }

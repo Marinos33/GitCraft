@@ -4,6 +4,7 @@ import { api, type Commit, type RepoView, type TodoItem } from "./api";
 import { act, confirmThen } from "./repo";
 import { ai } from "./ai";
 import { useStore, type RebaseItem, type RebasePlan } from "./store";
+import { launchMetrics } from "./launch";
 
 const toItem = (c: Commit): RebaseItem => ({
   action: "pick",
@@ -56,7 +57,7 @@ export function openCherryPick(tabId: string, repo: RepoView, shas: string[]) {
   const commits = repo.commits.filter((c) => shas.includes(c.sha)).sort((a, b) => order.get(a.sha)! - order.get(b.sha)!);
   const items = commits.map(toItem);
   st.setUi(tabId, {
-    rebase: { mode: "cherry", base: "", onto: repo.head_branch ?? repo.head_sha.slice(0, st.metrics.sha_len), items, original: items.map((i) => ({ ...i })) },
+    rebase: { mode: "cherry", base: "", onto: repo.head_branch ?? repo.head_sha.slice(0, launchMetrics().sha_len), items, original: items.map((i) => ({ ...i })) },
     diff: null,
     history: null,
     conflict: null,

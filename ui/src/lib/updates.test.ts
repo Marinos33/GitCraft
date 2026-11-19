@@ -1,12 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), check: vi.fn(), relaunch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), check: vi.fn(), relaunch: vi.fn(), listen: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
 
+/** The Rust update commands: `update_check` answers with `mocks.check`, the rest with the offered update's mocks. */
 function offeredUpdate() {
-  return { version: "0.1.99", body: "Release notes", download: vi.fn().mockResolvedValue(undefined), install: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined) };
+  return { version: "0.1.99", notes: "Release notes", channel: "stable", download: vi.fn().mockResolvedValue(undefined), install: vi.fn().mockResolvedValue(undefined) };
+}
+let current: ReturnType<typeof offeredUpdate> | null = null;
+function backend(command: string) {
+  if (command === "update_config") return Promise.resolve({ configured: true });
+  if (command === "update_check") return Promise.resolve(mocks.check()).then((u) => { current = u; return u && { version: u.version, notes: u.notes, channel: u.channel }; });
+  if (command === "update_download") return current!.download();
+  if (command === "update_install") return current!.install();
+  return Promise.resolve(undefined);
 }
 
 describe("automatic GitCraft updates", () => {
@@ -18,7 +27,9 @@ describe("automatic GitCraft updates", () => {
     vi.resetModules();
     vi.resetAllMocks();
     vi.useFakeTimers();
-    mocks.invoke.mockResolvedValue({ configured: true });
+    current = null;
+    mocks.invoke.mockImplementation(backend);
+    mocks.listen.mockResolvedValue(() => undefined);
     mocks.check.mockResolvedValue(null);
     updates = await import("./updates");
     ({ useStore } = await import("./store"));
@@ -81,7 +92,7 @@ describe("automatic GitCraft updates", () => {
     stop=updates.startUpdateChecks();await vi.advanceTimersByTimeAsync(0);
     const {startPersistence}=await import("./persistence");const stopSaving=startPersistence();
     let fail=true;const order:string[]=[];
-    mocks.invoke.mockImplementation(async(command:string)=>{if(command==="save_settings"){order.push("save");if(fail)throw new Error("disk full");}});
+    mocks.invoke.mockImplementation(async(command:string)=>{if(command==="save_settings"){order.push("save");if(fail)throw new Error("disk full");return null;}return backend(command);});
     update.install.mockImplementation(async()=>{order.push("install");});
     useStore.getState().setSettings({rememberTabs:true});
     await updates.installAndRestart();expect(update.install).not.toHaveBeenCalled();expect(mocks.relaunch).not.toHaveBeenCalled();
@@ -111,8 +122,25 @@ describe("automatic GitCraft updates", () => {
 
   it("does not overlap a scheduled check and a manual check", async () => {
     await Promise.all([updates.checkForUpdates(false), updates.checkForUpdates(true)]);
-    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(mocks.invoke.mock.calls.map(([command]) => command)).toEqual(["update_config", "update_check"]);
     expect(mocks.check).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves a channel change before checking and reports download progress", async () => {
+    const { startPersistence } = await import("./persistence");
+    const stopSaving = startPersistence();
+    let progress!: (event: { payload: { downloaded: number; total: number | null } }) => void;
+    mocks.listen.mockImplementation(async (_event: string, handler: typeof progress) => { progress = handler; return () => undefined; });
+    const update = offeredUpdate();
+    update.download.mockImplementation(async () => { progress({ payload: { downloaded: 25, total: 100 } }); expect(updates.useUpdates.getState().percent).toBe(25); });
+    mocks.check.mockResolvedValue(update);
+    useStore.getState().setSettings({ updateChannel: "beta" });
+    await updates.checkForUpdates(true);
+    const commands = mocks.invoke.mock.calls.map(([command]) => command);
+    expect(commands.indexOf("save_settings")).toBeLessThan(commands.indexOf("update_check"));
+    expect(mocks.listen).toHaveBeenCalledWith("update-progress", expect.any(Function));
+    expect(updates.useUpdates.getState()).toMatchObject({ phase: "ready", percent: 100 });
+    stopSaving();
   });
 
   it("checks every hour", () => {

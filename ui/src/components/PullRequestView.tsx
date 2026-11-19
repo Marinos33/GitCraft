@@ -9,9 +9,10 @@ import { branchFromIssue, hosting, issueIdentity } from "@/lib/hosting";
 import { Button } from "./ui/button";
 import { Avatar } from "./Icons";
 import { timeSince } from "@/lib/utils";
+import { useMetrics } from "@/lib/launch";
 
 function Since({ iso }: { iso: string }) {
-  const units = useStore((s) => s.metrics.time_units);
+  const units = useMetrics().time_units;
   if (!iso) return null;
   const t = timeSince(Date.parse(iso) / 1000, units);
   return <span style={{ color: t.color }}>{t.text}</span>;

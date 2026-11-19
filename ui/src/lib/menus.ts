@@ -10,6 +10,7 @@ import { explainBranch, patchName, savePatch } from "./ai";
 import { baseFor, dropCommits, headLine, moveCommit, openRebase, rewordCommit, squashCommits } from "./rewrite";
 import { linkItems } from "./weblinks";
 import { editorName } from "@/components/TitleBar";
+import { launchMetrics } from "./launch";
 
 const activeTab = () => useStore.getState().activeId;
 
@@ -185,7 +186,7 @@ export function commitActionMenu(repo: RepoView, c: Commit, type: "cherryPick" |
   return { label, disabled, children: c.parents.map((sha, index) => {
     const parent = repo.commits.find((p) => p.sha === sha);
     return {
-      label: `Relative to parent ${index + 1}: ${sha.slice(0, useStore.getState().metrics.sha_len)}${parent ? " — " + parent.summary : ""}`,
+      label: `Relative to parent ${index + 1}: ${sha.slice(0, launchMetrics().sha_len)}${parent ? " — " + parent.summary : ""}`,
       onSelect: () => confirmThen(`${label} relative to parent ${index + 1}?`,
         `${type === "revert" ? "Undo" : "Apply"} the merge's changes compared with parent ${index + 1} (${sha}).`,
         type === "revert" ? "Revert" : "Cherry Pick",
@@ -260,8 +261,8 @@ function historyItems(repo: RepoView, c: Commit): MenuEntry[] {
   const items: MenuEntry[] = [];
   if (children > 0)
     items.push({
-      label: `Interactive Rebase ${children} children of ${c.sha.slice(0, useStore.getState().metrics.sha_len)}`,
-      onSelect: () => openRebase(activeTab(), repo.path, c.sha, c.sha.slice(0, useStore.getState().metrics.sha_len)),
+      label: `Interactive Rebase ${children} children of ${c.sha.slice(0, launchMetrics().sha_len)}`,
+      onSelect: () => openRebase(activeTab(), repo.path, c.sha, c.sha.slice(0, launchMetrics().sha_len)),
     });
   items.push({ label: `Interactive Rebase ${head} from here`, onSelect: () => openRebase(activeTab(), repo.path, baseFor(repo, c.sha), head) });
   if (pos + 1 < line.length) items.push({ label: "Squash into the commit below", onSelect: () => squashCommits(repo, [c.sha]) });

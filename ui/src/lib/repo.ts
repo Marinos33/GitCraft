@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { QueryClient, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { postDesktopNotifications } from "./desktop-notify";
 import { invoke } from "@tauri-apps/api/core";
 import { api, type Action, type FileChange, type GitRef, type RefView, type RepoView, type PushReview } from "./api";
@@ -7,9 +7,8 @@ import { useStore } from "./store";
 import { spinButtonFor, withSpin } from "./spin";
 import { addRemote } from "./manage";
 
-export const queryClient = new QueryClient({
-  defaultOptions: { queries: { refetchOnWindowFocus: true, staleTime: 2000, retry: false } },
-});
+import { queryClient } from "./query-client";
+export { queryClient };
 
 /** Latest data per repository, whatever graph view (hidden / solo / pinned) it was read with. */
 const latest = new Map<string, RepoView>();

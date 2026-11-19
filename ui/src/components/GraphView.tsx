@@ -15,6 +15,7 @@ import { CtxMenu, DropMenu, type MenuEntry } from "./ui/menu";
 import { Button } from "./ui/button";
 import { Avatar } from "./Icons";
 import { cn, fullDate, laneColor } from "@/lib/utils";
+import { launchMetrics, useMetrics } from "@/lib/launch";
 
 interface Props {
   repo: RepoView;
@@ -29,7 +30,7 @@ const NO_REFS: string[] = [];
 
 export function GraphView({ repo, tabId }: Props) {
   // Sizes from the graph constants (src/metrics.rs).
-  const m = useStore((s) => s.metrics);
+  const m = useMetrics();
   const cols = useStore((s) => s.settings.columns) ?? DEFAULT_COLUMNS;
   const widths = useStore((s) => s.settings.graphColumnWidths);
   const lazyLoad = useStore((s) => s.settings.lazyLoad);
@@ -658,7 +659,7 @@ function CommitRow({
   onClick: (c: Commit, i: number, e: React.MouseEvent) => void;
   onHoverRef: (i: number | null) => void;
 }) {
-  const m = useStore((st) => st.metrics);
+  const m = useMetrics();
   const first = refs?.[0];
   const desc = showDesc && c.body ? c.body.replace(/\r?\n+/g, " | ") : "";
   const bg = selected ? "var(--color-selrow)" : undefined;
@@ -761,7 +762,7 @@ function CommitRow({
 
 /** CHANGES column: files changed plus a green / red bar of added and removed lines. */
 function ChangesBar({ stats }: { stats: Stats | undefined }) {
-  const m = useStore((st) => st.metrics);
+  const m = useMetrics();
   if (!stats) return <span className="text-fg3">…</span>;
   const total = stats.added + stats.deleted || 1;
   return (
@@ -838,7 +839,7 @@ function WipInput({ path, onFocus }: { path: string; onFocus: () => void }) {
   useLayoutEffect(() => {
     const area = box.current?.parentElement;
     if (!area) return;
-    const fit = () => setMaxWidth(Math.max(WIP_INPUT_MIN, area.clientWidth - useStore.getState().metrics.wip_stats_space));
+    const fit = () => setMaxWidth(Math.max(WIP_INPUT_MIN, area.clientWidth - launchMetrics().wip_stats_space));
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(area);

@@ -1,6 +1,6 @@
 import { invokeRead } from "./api";
 // Preferences back end: integrations (all services), runtime Git settings, AI configuration, Git config,
-// GPG and credential helpers. Settings that change how Git runs are pushed to Rust whenever they change.
+// GPG and credential helpers. The Rust side reads the settings it needs from the saved settings file.
 import { invoke } from "@tauri-apps/api/core";
 import { invokeAi } from "./ai-connection";
 import { useQuery } from "@tanstack/react-query";
@@ -157,7 +157,7 @@ export const integrations = {
   statuses: (ids: string[]) => invoke<ServiceStatus[]>("integration_statuses", { ids }),
   setToken: async (id: string, token: string) => {
     await invoke<void>("set_secret", { name: `${id}-token`, value: token });
-    try { await invoke("sync_git_credentials", { gitlabHost: useStore.getState().settings.gitlabHost ?? "" }); }
+    try { await invoke("sync_git_credentials"); }
     finally { await Promise.all([queryClient.invalidateQueries({ queryKey: ["signedInServices"] }), queryClient.invalidateQueries({ queryKey: ["integrationStatuses"] })]); }
   },
   signIn: (id: string, method: "browser" | "gh") => invoke<string>("integration_sign_in", { id, method }),
@@ -169,10 +169,11 @@ export const integrations = {
 };
 
 export const tools = {
-  versions: (gpgProgram: string) => invoke<{ git: string; git_path: string; ssh: string; gpg: string }>("tool_versions", { gpgProgram }),
+  versions: () => invoke<{ git: string; git_path: string; ssh: string; gpg: string }>("tool_versions"),
   configGet: (path: string | null, scope: "global" | "local", keys: string[], signal?: AbortSignal) => invokeRead<Record<string, string>>("git_config_get", { path, scope, keys }, signal),
-  gpgGenerate: (program: string, name: string, email: string, passphrase: string) => invoke<string>("gpg_generate_key", { program, name, email, passphrase }),
-  gpgExport: (program: string, key: string) => invoke<string>("gpg_export_key", { program, key }),
+  /** Both use Git's gpg.program setting. */
+  gpgGenerate: (name: string, email: string, passphrase: string) => invoke<string>("gpg_generate_key", { name, email, passphrase }),
+  gpgExport: (key: string) => invoke<string>("gpg_export_key", { key }),
   forgetCredentials: (hosts: string[]) => invoke<number>("forget_credentials", { hosts }),
   deleteOrig: async (path: string) => {
     const candidates = await invoke<{path: string; expected: string}[]>("orig_cleanup_candidates", {path});
@@ -183,7 +184,7 @@ export const tools = {
 
 export const aiApi = {
   test: () => invokeAi<string>("ai_test_connection"),
-  listModels: (config: AiSettings) => invoke<AiModel[]>("ai_list_models", { config }),
+  listModels: () => invokeAi<AiModel[]>("ai_list_models"),
   findProgram: (provider: AiSettings["provider"]) => invoke<{ path: string; version: string }>("ai_find_program", { provider }),
   pullRequest: (path: string, source: string, target: string) => invokeAi<[string, string]>("ai_pull_request", { path, source, target }),
   resolveConflict: (base: string, ours: string, theirs: string, file: string) => invokeAi<string>("ai_resolve_conflict", { base, ours, theirs, file }),
@@ -192,25 +193,6 @@ export const aiApi = {
 export interface AiModel {
   id: string;
   name: string;
-}
-
-/** Push the settings that change how the Rust side works (Git executable, SSH key, logging, services, AI). */
-export function syncBackendSettings(st: Settings) {
-  const encodings = Object.fromEntries(Object.entries(st.repoPrefs ?? {}).filter(([, p]) => p.encoding).map(([path, p]) => [path, p.encoding!]));
-  void invoke("set_runtime_settings", { settings: { gitPath: st.gitPath, sshUseAgent: st.sshUseAgent, sshPrivateKey: st.sshPrivateKey, extendedLog: st.extendedLog, encodings } }).catch(() => undefined);
-  void invoke("set_integration_config", { config: { ...st.integrations, gitlabHost: st.integrations.gitlabHost || st.gitlabHost } }).catch(() => undefined);
-  void invoke("set_ai_config", { config: st.ai }).catch(() => undefined);
-}
-
-/** Keep the Rust side in step with the settings (called once at start-up). */
-export function startBackendSync() {
-  syncBackendSettings(useStore.getState().settings);
-  useStore.subscribe((st, prev) => {
-    const a = st.settings;
-    const b = prev.settings;
-    if (a.gitPath !== b.gitPath || a.sshUseAgent !== b.sshUseAgent || a.sshPrivateKey !== b.sshPrivateKey || a.extendedLog !== b.extendedLog || a.integrations !== b.integrations || a.ai !== b.ai || a.gitlabHost !== b.gitlabHost || a.repoPrefs !== b.repoPrefs)
-      syncBackendSettings(a);
-  });
 }
 
 /** Simple moment-style date formatting for the Date/Time preferences (YYYY, MMMM, MMM, MM, M, DD, D, dddd, ddd, HH, H, hh, h, mm, ss, A, a). */
@@ -266,7 +248,7 @@ export function useSignedInServices() {
 /** Removes every saved service token (File > Sign Out). Returns how many were removed. */
 export async function signOutAll(): Promise<number> {
   const results = await Promise.allSettled(SERVICES.map((service) => invoke<void>("set_secret", { name: `${service.id}-token`, value: "" })));
-  try { await invoke("sync_git_credentials", { gitlabHost: useStore.getState().settings.gitlabHost ?? "" }); }
+  try { await invoke("sync_git_credentials"); }
   finally { await Promise.all([queryClient.invalidateQueries({ queryKey: SIGNED_IN_KEY }), queryClient.invalidateQueries({ queryKey: ["integrationStatuses"] })]); }
   const failed = results.filter((r) => r.status === "rejected");
   if (failed.length) throw new Error(`Could not remove credentials for ${failed.length} integration(s). Try again.`);

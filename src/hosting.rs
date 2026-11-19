@@ -3,12 +3,11 @@
 //! Jira Data Center, Trello (issue trackers). This file: connections, sign-in, tokens for Git, remotes.
 //! hosting_api.rs: pull requests, issues, Launchpad, repositories to clone, SSH keys.
 //! Tokens live in the operating system's credential store, never in GitCraft's settings file; hosts, user
-//! names and organisations are ordinary settings passed in with `set_config`.
+//! names and organisations are ordinary settings read by `settings.rs`.
 
 pub use crate::hosting_api::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::RwLock;
 
 const SERVICE: &str = "GitCraft";
 
@@ -50,7 +49,7 @@ pub fn secret_name(id: &str) -> String {
 }
 
 /// Hosts, user names and organisations for the services (not secret).
-#[derive(Deserialize, Serialize, Clone, Default, Debug)]
+#[derive(Deserialize, Serialize, Clone, Default, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
     pub github_enterprise_host: String,
@@ -68,16 +67,16 @@ pub struct Config {
     pub trello_key: String,
 }
 
-static CONFIG: RwLock<Option<Config>> = RwLock::new(None);
-
-pub fn set_config(c: Config) {
-    if let Ok(mut w) = CONFIG.write() {
-        *w = Some(c);
-    }
+pub fn config() -> Config {
+    crate::settings::current().integrations.clone()
 }
 
-pub fn config() -> Config {
-    CONFIG.read().ok().and_then(|c| c.clone()).unwrap_or_default()
+/// Use `c` as the integration settings (tests only; the app reads them from the settings file).
+#[cfg(test)]
+pub fn set_config(c: Config) {
+    let mut settings = (*crate::settings::current()).clone();
+    settings.integrations = c;
+    crate::settings::set(settings);
 }
 
 fn clean_host(h: &str) -> String {
@@ -176,14 +175,8 @@ fn http_page_request(method: &str, url: &str, auth: &Auth, body: Option<Value>) 
         Auth::Query(k, t) => format!("{url}{}key={}&token={}", if url.contains('?') { "&" } else { "?" }, crate::hosting_api::q(k), crate::hosting_api::q(t)),
         _ => url.to_string(),
     };
-    static TRANSPORT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     static SLOTS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
-    let agent = TRANSPORT.get_or_init(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("HTTP transport")
-    });
-    let mut request = agent.request(method.parse().map_err(|_| "Invalid HTTP method")?, &url)
-        .header("User-Agent", "GitCraft").timeout(std::time::Duration::from_secs(30));
+    let mut request = crate::net::client().request(method.parse().map_err(|_| "Invalid HTTP method")?, &url);
     request = match auth {
         Auth::Bearer(token) => request.bearer_auth(token),
         Auth::Header(name, token) => request.header(*name, token),
@@ -194,40 +187,29 @@ fn http_page_request(method: &str, url: &str, auth: &Auth, body: Option<Value>) 
         request.header("Accept", "application/vnd.github+json").header("X-GitHub-Api-Version", "2022-11-28")
     } else { request.header("Accept", "application/json") };
     if let Some(body) = body { request = request.json(&body); }
-    // Dropping the async request interrupts connect/header/body waits. No detached
-    // per-request thread remains alive after its consumer cancels.
-    tauri::async_runtime::block_on(async {
-        let mut operation = Box::pin(async {
-            let _slot = SLOTS.get_or_init(|| tokio::sync::Semaphore::new(8)).acquire().await.map_err(|_| "HTTP scheduler closed".to_string())?;
-            let mut response = request.send().await.map_err(|_| "Could not contact the hosting service. Check its address and connection.".to_string())?;
-            let status = response.status().as_u16();
-            if (300..400).contains(&status) { return Err("The hosting service redirected this authenticated request. Update its configured address; credentials were not forwarded.".into()); }
-            let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
-            let link = header("Link"); let next_page = header("X-Next-Page"); let continuation = header("X-MS-ContinuationToken");
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await.map_err(|_| "Could not read the hosting response.".to_string())? {
-                if bytes.len() + chunk.len() > 10 * 1024 * 1024 { return Err("The hosting response exceeded its 10 MB budget; narrow the query.".into()); }
-                bytes.extend_from_slice(&chunk);
-            }
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            let value = if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text.clone())) };
-            if status >= 400 {
-                let message = value["message"].as_str().or(value["error"]["message"].as_str()).or(value["errorMessages"][0].as_str()).or(value["errors"][0]["message"].as_str()).unwrap_or(&text);
-                let hint = match status { 401 => " - the token was not accepted; reconnect in Preferences > Integrations", 403 => " - the token may be missing a permission", _ => "" };
-                return Err(format!("{status}: {}{hint}", message.chars().take(300).collect::<String>()));
-            }
-            Ok(HttpPage { value, link, next_page, continuation })
-        });
-        let started = std::time::Instant::now();
-        loop {
-            crate::read_jobs::check_context(&context)?;
-            if started.elapsed() >= std::time::Duration::from_secs(30) { return Err("The hosting request timed out.".into()); }
-            match tokio::time::timeout(std::time::Duration::from_millis(20), &mut operation).await {
-                Ok(result) => return result,
-                Err(_) => continue,
-            }
-        }
-    })
+    let limits = crate::net::Limits {
+        timeout: std::time::Duration::from_secs(30),
+        max_bytes: 10 * 1024 * 1024,
+        slots: Some(SLOTS.get_or_init(|| tokio::sync::Semaphore::new(8))),
+    };
+    let response = crate::net::send(request, limits, &|| crate::read_jobs::check_context(&context)).map_err(|error| match error {
+        crate::net::Error::Unreachable => "Could not contact the hosting service. Check its address and connection.".to_string(),
+        crate::net::Error::Unreadable => "Could not read the hosting response.".to_string(),
+        crate::net::Error::TooLarge => "The hosting response exceeded its 10 MB budget; narrow the query.".to_string(),
+        crate::net::Error::TimedOut => "The hosting request timed out.".to_string(),
+        crate::net::Error::Cancelled(message) => message,
+    })?;
+    let status = response.status;
+    if response.is_redirect() { return Err("The hosting service redirected this authenticated request. Update its configured address; credentials were not forwarded.".into()); }
+    let link = response.header("Link"); let next_page = response.header("X-Next-Page"); let continuation = response.header("X-MS-ContinuationToken");
+    let text = response.text();
+    let value = if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text.clone())) };
+    if status >= 400 {
+        let message = value["message"].as_str().or(value["error"]["message"].as_str()).or(value["errorMessages"][0].as_str()).or(value["errors"][0]["message"].as_str()).unwrap_or(&text);
+        let hint = match status { 401 => " - the token was not accepted; reconnect in Preferences > Integrations", 403 => " - the token may be missing a permission", _ => "" };
+        return Err(format!("{status}: {}{hint}", message.chars().take(300).collect::<String>()));
+    }
+    Ok(HttpPage { value, link, next_page, continuation })
 }
 
 fn s(v: &Value) -> String {
@@ -340,34 +322,54 @@ pub fn gh_cli_token() -> Result<String, String> {
     }
 }
 
-/// Give Git the tokens of the connected hosting services, for HTTPS remotes.
-pub fn sync_git_credentials(gitlab_host: &str) {
-    if !gitlab_host.trim().is_empty() {
-        let mut c = config();
-        if c.gitlab_host.trim().is_empty() {
-            c.gitlab_host = gitlab_host.trim().to_string();
-            set_config(c);
-        }
+/// Services whose token Git may use for HTTPS remotes.
+const GIT_SERVICES: [&str; 7] = ["github", "github-enterprise", "gitlab", "gitlab-self", "bitbucket", "bitbucket-server", "azure"];
+
+/// The user name Git sends with a service's token.
+fn git_user(id: &str, c: &Config) -> String {
+    match id {
+        "github" | "github-enterprise" => "x-access-token".to_string(),
+        "gitlab" | "gitlab-self" => "oauth2".to_string(),
+        "bitbucket" if c.bitbucket_user.trim().is_empty() => "x-token-auth".to_string(),
+        "bitbucket" => c.bitbucket_user.trim().to_string(),
+        "bitbucket-server" => c.bitbucket_server_user.trim().to_string(),
+        _ => "gitcraft".to_string(),
     }
+}
+
+/// The sign-in (user name, token) Git should use for `host`, as Git names it (host[:port]).
+pub fn git_login(host: &str) -> Option<(String, String)> {
     let c = config();
-    let mut t = Vec::new();
-    for id in ["github", "github-enterprise", "gitlab", "gitlab-self", "bitbucket", "bitbucket-server", "azure"] {
-        let host = host_of(id);
-        let Some(tok) = secret_get(&secret_name(id)) else { continue };
-        if host.is_empty() {
-            continue;
-        }
-        let user = match id {
-            "github" | "github-enterprise" => "x-access-token".to_string(),
-            "gitlab" | "gitlab-self" => "oauth2".to_string(),
-            "bitbucket" if c.bitbucket_user.trim().is_empty() => "x-token-auth".to_string(),
-            "bitbucket" => c.bitbucket_user.trim().to_string(),
-            "bitbucket-server" => c.bitbucket_server_user.trim().to_string(),
-            _ => "gitcraft".to_string(),
-        };
-        t.push((host, user, tok));
-    }
-    crate::git::set_host_tokens(t);
+    let id = GIT_SERVICES.into_iter().find(|id| {
+        let configured = host_of(id);
+        let authority = configured.split('/').next().unwrap_or_default();
+        !authority.is_empty() && authority.eq_ignore_ascii_case(host)
+    })?;
+    Some((git_user(id, &c), secret_get(&secret_name(id))?))
+}
+
+/// Tell Git which hosts have a connected service. The tokens stay in the credential store; Git
+/// asks GitCraft's credential helper for them when it needs them.
+pub fn sync_git_credentials() {
+    let hosts = GIT_SERVICES.into_iter()
+        .filter(|id| secret_get(&secret_name(id)).is_some())
+        .map(host_of)
+        .filter(|host| !host.is_empty())
+        .collect();
+    crate::git::set_credential_hosts(hosts);
+}
+
+/// `gitcraft --git-credential <operation>`: Git's credential helper protocol on stdin/stdout.
+/// Runs before the window opens and only answers `get`.
+pub fn git_credential_main(operation: &str) -> i32 {
+    use std::io::{Read, Write};
+    let mut input = String::new();
+    if std::io::stdin().take(64 * 1024).read_to_string(&mut input).is_err() { return 1; }
+    if operation == "get" { crate::settings::load(); }
+    let reply = crate::git::credential_reply(operation, &input, git_login);
+    let mut out = std::io::stdout();
+    if out.write_all(reply.as_bytes()).and_then(|_| out.flush()).is_err() { return 1; }
+    0
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -545,16 +547,19 @@ mod tests {
         assert_eq!(https_url("https://github.com/a/b.git"), None);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn tokens_reach_git_through_the_environment_only() {
-        let env = crate::git::credential_env(&[("github.com".into(), "x-access-token".into(), "secret123".into())]);
-        let get = |k: &str| env.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone()).unwrap_or_default();
-        assert_eq!(get("GIT_CONFIG_COUNT"), "2");
-        assert_eq!(get("GIT_CONFIG_KEY_0"), "credential.https://github.com.helper");
-        assert_eq!(get("GIT_CONFIG_VALUE_0"), "");
-        assert!(get("GIT_CONFIG_VALUE_1").contains("$GITCRAFT_TOKEN_0") && !get("GIT_CONFIG_VALUE_1").contains("secret123"));
-        assert_eq!(get("GITCRAFT_TOKEN_0"), "secret123");
-        // Git really reads that helper: ask it for credentials of a made-up repository.
+    fn git_asks_the_helper_and_gets_the_reply_verbatim() {
+        // A stand-in for `gitcraft --git-credential`, configured exactly as git_cmd configures it.
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("helper.sh");
+        let calls = dir.path().join("calls.log");
+        std::fs::write(&script, format!("#!/bin/sh\necho \"$*\" >> '{}'\ntest \"$2\" = get || exit 0\nprintf 'username=x-access-token\\npassword=secret123\\n'\n", calls.display())).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let helper = crate::git::credential_helper(&script);
+        let env = crate::git::credential_env(&["github.com".into()], &helper);
+        assert!(!env.iter().any(|(_, v)| v.contains("secret123")));
         let mut c = std::process::Command::new("git");
         c.args(["credential", "fill"]).envs(env.iter().cloned()).env("GIT_TERMINAL_PROMPT", "0");
         c.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
@@ -563,6 +568,25 @@ mod tests {
         ch.stdin.take().unwrap().write_all(b"protocol=https\nhost=github.com\npath=x/y.git\n\n").unwrap();
         let out = String::from_utf8_lossy(&ch.wait_with_output().unwrap().stdout).into_owned();
         assert!(out.contains("username=x-access-token") && out.contains("password=secret123"), "{out}");
+        // After a successful sign-in Git asks every helper to `store`; GitCraft is not started for it.
+        let mut c = std::process::Command::new("git");
+        c.args(["credential", "approve"]).envs(env.iter().cloned()).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null());
+        let mut ch = c.spawn().unwrap();
+        ch.stdin.take().unwrap().write_all(b"protocol=https\nhost=github.com\nusername=x-access-token\npassword=secret123\n\n").unwrap();
+        assert!(ch.wait().unwrap().success());
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "--git-credential get\n");
+    }
+
+    #[test]
+    fn git_logins_match_configured_hosts_and_users() {
+        let previous = config();
+        set_config(Config { bitbucket_user: " team-user ".into(), github_enterprise_host: "https://GHE.example.test/".into(), ..Default::default() });
+        assert_eq!(git_user("bitbucket", &config()), "team-user");
+        assert_eq!(git_user("github-enterprise", &config()), "x-access-token");
+        assert_eq!(git_user("gitlab-self", &config()), "oauth2");
+        // No token in the store for these made-up hosts, so nothing is answered.
+        assert_eq!(git_login("unknown.example.test"), None);
+        set_config(previous);
     }
 
     #[test]
