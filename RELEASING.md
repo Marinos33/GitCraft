@@ -4,6 +4,8 @@ Each push to `main` starts the **Release** workflow unless the push only changes
 
 The workflow builds Windows x64 (NSIS and MSI), macOS (universal DMG), and Linux x64 (AppImage, DEB, and RPM). It signs the updater bundles, checks that all expected assets are present, and publishes them together to [GitHub Releases](https://github.com/MystifiedSky/GitCraft/releases) as a **pre-release**. It then rewrites `latest.json` on the rolling `beta` release, so copies on the beta channel are offered that build. Until that succeeds, installed copies continue to see the previous build.
 
+Forks run the same workflow without the signing key, so it only runs the tests there: the build and publish jobs are skipped outside `MystifiedSky/GitCraft`.
+
 ## Promoting a build to stable
 
 Pushes to `main` never reach the stable channel on their own. To release a build to everyone, open **Actions → Promote to stable → Run workflow** and enter its version (for example `0.1.42`). The workflow checks that the pre-release finished publishing and is newer than the current stable release, writes release notes covering every change since the previous stable release, then clears the pre-release flag and marks it as the latest release. Copies on the stable channel read `latest.json` from the latest release, so they are offered it at their next check.

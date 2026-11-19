@@ -19,6 +19,8 @@ concurrency:
 
 jobs:
   promote:
+    # Releases are published only from the main repository (see release.yml).
+    if: github.repository == 'MystifiedSky/GitCraft'
     runs-on: ubuntu-24.04
     permissions:
       contents: write

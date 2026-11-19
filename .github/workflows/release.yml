@@ -19,8 +19,10 @@ jobs:
   tests:
     uses: ./.github/workflows/test.yml
 
+  # Only the main repository holds the update signing key and publishes releases. In forks, a
+  # push to main runs the tests; build and publish are skipped with this job.
   version:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.repository == 'MystifiedSky/GitCraft'
     runs-on: ubuntu-24.04
     outputs:
       number: ${{ steps.version.outputs.number }}
