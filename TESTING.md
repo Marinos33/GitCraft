@@ -100,7 +100,7 @@ paths and gives the app a restricted process search path.
 
 Run `node --test scripts/desktop-harness-paths.test.mjs` to check the executable
 allowlist, traversal rejection, junction boundaries and Windows PATH isolation.
-This suite also runs in the Windows, macOS and Linux CI matrix.
+This suite also runs in the Windows and Linux CI matrix, and on macOS for pull requests.
 
 The Windows harness uses WebView2's loopback debugging endpoint and an explicit
 `--screenshot ... --shot-view validation` startup mode. It creates disposable

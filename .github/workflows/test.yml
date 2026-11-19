@@ -17,14 +17,11 @@ jobs:
     name: Test (${{ matrix.platform }})
     strategy:
       fail-fast: false
+      # Windows and Linux always. macOS only for pull requests and a manual run of this workflow:
+      # GitHub's macOS runners can stay queued for a long time, which would hold up every build
+      # of main (the Release workflow calls this one).
       matrix:
-        include:
-          - runner: windows-2022
-            platform: Windows
-          - runner: ubuntu-22.04
-            platform: Linux
-          ##- runner: macos-latest
-          ##platform: macOS
+        include: ${{ fromJSON(format('[{{"runner":"windows-2022","platform":"Windows"}},{{"runner":"ubuntu-22.04","platform":"Linux"}}{0}]', (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.workflow == 'Tests')) && ',{"runner":"macos-latest","platform":"macOS"}' || '')) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:

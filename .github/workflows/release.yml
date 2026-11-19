@@ -5,7 +5,13 @@ on:
     branches: [main]
     paths-ignore:
       - CHANGELOG.md
+  # "Run workflow" builds and publishes a pre-release from main in any repository, forks included.
   workflow_dispatch:
+    inputs:
+      macos:
+        description: Build the macOS installer (needs a macOS runner, which can take long to start)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -19,13 +25,14 @@ jobs:
   tests:
     uses: ./.github/workflows/test.yml
 
-  # Only the main repository holds the update signing key and publishes releases. In forks, a
-  # push to main runs the tests; build and publish are skipped with this job.
+  # A push to main publishes a build in the main repository. In forks, a push to main only runs
+  # the tests; "Run workflow" (workflow_dispatch) builds and publishes from any repository.
   version:
-    if: github.ref == 'refs/heads/main' && github.repository == 'MystifiedSky/GitCraft'
+    if: github.ref == 'refs/heads/main' && (github.repository == 'MystifiedSky/GitCraft' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     outputs:
       number: ${{ steps.version.outputs.number }}
+      matrix: ${{ steps.platforms.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,28 +57,26 @@ jobs:
           NODE
           )
           echo "number=$number" >> "$GITHUB_OUTPUT"
+      - name: Choose the platforms to build
+        id: platforms
+        env:
+          # Pushes always build macOS; a manual run can leave it out.
+          MACOS: ${{ github.event_name != 'workflow_dispatch' || inputs.macos }}
+        run: |
+          node --input-type=module - >> "$GITHUB_OUTPUT" <<'NODE'
+          const include = [
+            { runner: 'windows-2022', platform: 'windows', target: 'x86_64-pc-windows-msvc', 'rust-targets': 'x86_64-pc-windows-msvc', bundles: 'nsis,msi' },
+            { runner: 'macos-latest', platform: 'macos', target: 'universal-apple-darwin', 'rust-targets': 'aarch64-apple-darwin,x86_64-apple-darwin', bundles: 'app,dmg' },
+            { runner: 'ubuntu-22.04', platform: 'linux', target: 'x86_64-unknown-linux-gnu', 'rust-targets': 'x86_64-unknown-linux-gnu', bundles: 'deb,rpm,appimage' },
+          ].filter((entry) => entry.platform !== 'macos' || process.env.MACOS === 'true');
+          console.log(`matrix=${JSON.stringify({ include })}`);
+          NODE
 
   build:
     needs: [version, tests]
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - runner: windows-2022
-            platform: windows
-            target: x86_64-pc-windows-msvc
-            rust-targets: x86_64-pc-windows-msvc
-            bundles: nsis,msi
-          - runner: macos-latest
-            platform: macos
-            target: universal-apple-darwin
-            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            bundles: app,dmg
-          - runner: ubuntu-22.04
-            platform: linux
-            target: x86_64-unknown-linux-gnu
-            rust-targets: x86_64-unknown-linux-gnu
-            bundles: deb,rpm,appimage
+      matrix: ${{ fromJSON(needs.version.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
@@ -127,12 +132,18 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
+          config=tauri.release.conf.json
           if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
-            echo "::error::Missing TAURI_SIGNING_PRIVATE_KEY. See RELEASING.md."
-            exit 1
+            if [[ "$GITHUB_REPOSITORY" == "MystifiedSky/GitCraft" ]]; then
+              echo "::error::Missing TAURI_SIGNING_PRIVATE_KEY. See RELEASING.md."
+              exit 1
+            fi
+            # Forks have no update signing key: build the installers without update packages.
+            echo "::warning::No TAURI_SIGNING_PRIVATE_KEY: building installers without in-app update files."
+            config='{"bundle":{"createUpdaterArtifacts":false}}'
           fi
           node ui/node_modules/@tauri-apps/cli/tauri.js build --ci \
-            --config tauri.release.conf.json --target "$TARGET" --bundles "$BUNDLES" -- --locked
+            --config "$config" --target "$TARGET" --bundles "$BUNDLES" -- --locked
 
       - uses: actions/upload-artifact@v4
         with:
@@ -171,11 +182,19 @@ jobs:
       - name: Prepare installers and the update manifest
         env:
           VERSION: ${{ needs.version.outputs.number }}
-        run: node scripts/release-assets.mjs "$VERSION" "$GITHUB_REPOSITORY"
+          SIGNED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          MACOS: ${{ contains(needs.version.outputs.matrix, '"macos"') }}
+        shell: bash
+        run: |
+          flags=()
+          [[ "$SIGNED" == true ]] || flags+=(--unsigned)
+          [[ "$MACOS" == true ]] || flags+=(--without macos)
+          node scripts/release-assets.mjs "$VERSION" "$GITHUB_REPOSITORY" "${flags[@]}"
       - name: Publish the complete release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.number }}
+          SIGNED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
         shell: bash
         run: |
           tag="v$VERSION"
@@ -213,6 +232,9 @@ jobs:
           if [[ -n "$previous" ]]; then
             printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$previous" "$tag" >> release-notes.md
           fi
+          if [[ "$SIGNED" != true ]]; then
+            printf '\n> These installers were built without the update signing key: install them by hand; GitCraft cannot update them in the app.\n' >> release-notes.md
+          fi
           if [[ -n "${release:-}" ]]; then
             gh release edit "$tag" --notes-file release-notes.md
           else
@@ -225,6 +247,8 @@ jobs:
           gh release edit "$tag" --draft=false --prerelease --latest=false
 
           # The beta channel reads latest.json from one rolling release, rewritten by each build.
+          # Without signed update files there is no manifest to offer.
+          if [[ "$SIGNED" != true ]]; then exit 0; fi
           if ! gh release view beta >/dev/null 2>&1; then
             gh release create beta --prerelease --latest=false --target "$GITHUB_SHA" --title "GitCraft beta" \
               --notes "Update channel for beta builds. Each build of main replaces latest.json here; installers are attached to the versioned pre-releases."

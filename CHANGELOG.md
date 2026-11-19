@@ -30,7 +30,8 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 - The TypeScript types for calls between the window and the Rust side are now generated from the Rust definitions, and the test workflow fails when they are out of date.
 - For contributors: the Rust commands, the action engine, the dialogs and the window state are split into smaller files by area. GitCraft behaves the same.
 - For contributors: data reported by the Rust side at start-up (version, layout metrics, picture mode) and the progress of long Git jobs now live in the react-query cache with the other data read from Rust; the window store keeps only interface state.
-- In forks, a push to the main branch now only runs the tests: building installers and publishing releases are skipped outside the main GitCraft repository, which holds the update signing key.
+- In forks, a push to the main branch only runs the tests. Running the Release workflow by hand publishes a pre-release with installers built without the update signing key, optionally without macOS; such builds are installed by hand and are not updated in the app.
+- Builds of the main branch run the tests on Windows and Linux; macOS tests run for pull requests and manual runs, so a slow-starting macOS runner no longer holds up a build.
 
 ### Fixed
 

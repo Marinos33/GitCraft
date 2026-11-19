@@ -4,7 +4,9 @@ Each push to `main` starts the **Release** workflow unless the push only changes
 
 The workflow builds Windows x64 (NSIS and MSI), macOS (universal DMG), and Linux x64 (AppImage, DEB, and RPM). It signs the updater bundles, checks that all expected assets are present, and publishes them together to [GitHub Releases](https://github.com/MystifiedSky/GitCraft/releases) as a **pre-release**. It then rewrites `latest.json` on the rolling `beta` release, so copies on the beta channel are offered that build. Until that succeeds, installed copies continue to see the previous build.
 
-Forks run the same workflow without the signing key, so it only runs the tests there: the build and publish jobs are skipped outside `MystifiedSky/GitCraft`.
+In a fork, a push to `main` only runs the tests. To publish a build from a fork, open **Actions → Release → Run workflow** on `main`. Forks have no update signing key, so the workflow builds the installers without update packages and publishes them as a pre-release without `latest.json`: install them by hand, GitCraft cannot update them in the app. Clear **Build the macOS installer** to leave macOS out when no macOS runner is available. **Promote to stable** works on these pre-releases too. The main repository keeps refusing to build without its signing key and to promote a release without `latest.json`.
+
+The test workflow runs on Windows and Linux for every build, and also on macOS for pull requests and manual runs: GitHub's macOS runners can stay queued for a long time and would otherwise hold up every build of `main`.
 
 ## Promoting a build to stable
 

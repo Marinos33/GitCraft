@@ -19,8 +19,6 @@ concurrency:
 
 jobs:
   promote:
-    # Releases are published only from the main repository (see release.yml).
-    if: github.repository == 'MystifiedSky/GitCraft'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -49,8 +47,13 @@ jobs:
             exit 1
           fi
           if ! jq -e '.assets[] | select(.name == "latest.json")' <<<"$release" >/dev/null; then
-            echo "::error::Release $tag has no update manifest (latest.json)."
-            exit 1
+            # Installed copies read the stable release's latest.json: the main repository must not
+            # promote a build without it. Forks' unsigned builds have none and are promoted as is.
+            if [[ "$GITHUB_REPOSITORY" == "MystifiedSky/GitCraft" ]]; then
+              echo "::error::Release $tag has no update manifest (latest.json)."
+              exit 1
+            fi
+            echo "::warning::Release $tag has no update manifest; it is promoted without in-app updates."
           fi
           stable=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')
