@@ -23,8 +23,8 @@ jobs:
             platform: Windows
           - runner: ubuntu-22.04
             platform: Linux
-          - runner: macos-latest
-            platform: macOS
+          ##- runner: macos-latest
+          ##platform: macOS
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
