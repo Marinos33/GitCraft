@@ -1,9 +1,14 @@
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const [version, repo] = process.argv.slice(2);
-if (!/^\d+\.\d+\.\d+$/.test(version ?? "") || !/^[\w.-]+\/[\w.-]+$/.test(repo ?? "")) {
-  throw new Error("Usage: node scripts/release-assets.mjs <version> <owner/repo>");
+// --unsigned: installers built without the update signing key (forks): no update packages,
+//   signatures or manifest. --without <platform>: that platform was not built.
+const [version, repo, ...options] = process.argv.slice(2);
+const unsigned = options.includes("--unsigned");
+const without = new Set(options.flatMap((option, i) => (options[i - 1] === "--without" ? [option] : [])));
+const known = options.every((option, i) => option === "--unsigned" || option === "--without" || options[i - 1] === "--without");
+if (!/^\d+\.\d+\.\d+$/.test(version ?? "") || !/^[\w.-]+\/[\w.-]+$/.test(repo ?? "") || !known) {
+  throw new Error("Usage: node scripts/release-assets.mjs <version> <owner/repo> [--unsigned] [--without <platform>]...");
 }
 
 const output = "release-assets";
@@ -11,7 +16,9 @@ mkdirSync(output);
 const platforms = {};
 const uploaded = new Set();
 
-function bundle(platform, suffix, targets = []) {
+function bundle(platform, suffix, targets = [], { update = false } = {}) {
+  if (without.has(platform) || (update && unsigned)) return;
+  if (unsigned) targets = [];
   const root = join("bundles", `release-${platform}`);
   const files = readdirSync(root, { recursive: true, withFileTypes: true });
   const matches = files.filter((file) => file.isFile() && file.name.endsWith(suffix));
@@ -42,10 +49,12 @@ function copy(source, name) {
 bundle("windows", "-setup.exe", ["windows-x86_64", "windows-x86_64-nsis"]);
 bundle("windows", ".msi", ["windows-x86_64-msi"]);
 bundle("macos", ".dmg");
-bundle("macos", ".app.tar.gz", ["darwin-aarch64", "darwin-x86_64"]);
+bundle("macos", ".app.tar.gz", ["darwin-aarch64", "darwin-x86_64"], { update: true });
 bundle("linux", ".AppImage", ["linux-x86_64"]);
 bundle("linux", ".deb");
 bundle("linux", ".rpm");
+
+if (unsigned) process.exit(0);
 
 // The same manifest is attached to the versioned pre-release (read by the stable channel once the
 // version is promoted) and rewritten on the rolling "beta" release (read by the beta channel).
