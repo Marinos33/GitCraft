@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       macos:
-        description: Build the macOS installer (needs a macOS runner, which can take long to start)
+        description: Build the macOS installer (needs a macOS runner, which may never start)
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
@@ -60,7 +60,7 @@ jobs:
       - name: Choose the platforms to build
         id: platforms
         env:
-          # Pushes always build macOS; a manual run can leave it out.
+          # Pushes always build macOS; a manual run builds it only when asked.
           MACOS: ${{ github.event_name != 'workflow_dispatch' || inputs.macos }}
         run: |
           node --input-type=module - >> "$GITHUB_OUTPUT" <<'NODE'
