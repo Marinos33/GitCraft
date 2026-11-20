@@ -38,6 +38,7 @@ This file records notable changes to GitCraft. It follows [Keep a Changelog](htt
 
 - Release notes list only changes since the previous published version, even when several releases are queued before the changelog is archived.
 - The GitCraft window can be closed again, from the close button, the taskbar or Alt+F4: it was waiting for a permission to close itself after saving preferences, and never got it.
+- On Windows, the folder and file pickers (Open, Clone, patches, Preferences) are now tied to the GitCraft window: they stay above it and block it until closed, instead of being able to open behind it and stay on screen.
 
 ## [0.1.29] - 2026-11-18
 
