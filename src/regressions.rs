@@ -962,3 +962,14 @@ fn dense_diff_payloads_are_bounded_and_never_applied_as_partial_patches() {
     assert_eq!(git::file_diff_opts(d,&git::DiffSource::Staged,"dense.txt",false,None,false)[0].kind,git::DiffLineKind::Limit);
     assert_eq!(git::run(d,&["show",":dense.txt"]).stdout,"x\n".repeat(100000));
 }
+
+#[test]
+fn the_window_may_be_destroyed_after_the_close_guard_has_saved() {
+    // The window listens for close requests (ui/src/App.tsx) to save preferences first. With such a
+    // listener Tauri always prevents the close and waits for the page to call destroy(), which needs
+    // this permission: without it the window can never be closed.
+    let capabilities = include_str!("../capabilities/default.json");
+    for permission in ["core:window:allow-close", "core:window:allow-destroy"] {
+        assert!(capabilities.contains(&format!("\"{permission}\"")), "capabilities/default.json lacks {permission}");
+    }
+}
