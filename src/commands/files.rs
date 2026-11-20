@@ -55,12 +55,25 @@ pub(crate) async fn tracked_files(path: String, read_id: Option<String>) -> Resu
     blocking(move || read_jobs::scope(read_id, || files::tracked_files(Path::new(&path)))).await?
 }
 
+/// A native file dialog owned by GitCraft's window. On Windows a dialog without an owner is not tied
+/// to the window: it can open behind it and stay on screen after the window has moved on, and the
+/// window stays usable while it is open. With an owner it stays on top and blocks the window until
+/// it is closed.
+fn file_dialog(window: &tauri::Window) -> rfd::FileDialog {
+    let dialog = rfd::FileDialog::new();
+    #[cfg(windows)]
+    let dialog = dialog.set_parent(window);
+    #[cfg(not(windows))]
+    let _ = window;
+    dialog
+}
+
 /// Save a patch (uncommitted changes when `shas` is empty, else those commits) to a file the person picks.
 #[tauri::command]
-pub(crate) async fn save_patch(path: String, shas: Vec<String>, name: String) -> Result<Option<String>, String> {
+pub(crate) async fn save_patch(path: String, shas: Vec<String>, name: String, window: tauri::Window) -> Result<Option<String>, String> {
     let patch = blocking(move || -> Result<_, String> {
         let text = extras::make_patch(Path::new(&path), &shas)?;
-        let file = rfd::FileDialog::new().set_title("Save patch").set_file_name(&name).add_filter("Patch", &["patch", "diff"]).save_file();
+        let file = file_dialog(&window).set_title("Save patch").set_file_name(&name).add_filter("Patch", &["patch", "diff"]).save_file();
         Ok(file.map(|file| (file, text)))
     })
     .await??;
@@ -72,13 +85,13 @@ pub(crate) async fn save_patch(path: String, shas: Vec<String>, name: String) ->
 }
 
 #[tauri::command]
-pub(crate) async fn pick_patch_file() -> Result<Option<String>, String> {
-    blocking(|| rfd::FileDialog::new().set_title("Apply a patch").add_filter("Patch", &["patch", "diff"]).pick_file().map(|p| p.to_string_lossy().into_owned())).await
+pub(crate) async fn pick_patch_file(window: tauri::Window) -> Result<Option<String>, String> {
+    blocking(move || file_dialog(&window).set_title("Apply a patch").add_filter("Patch", &["patch", "diff"]).pick_file().map(|p| p.to_string_lossy().into_owned())).await
 }
 
 #[tauri::command]
-pub(crate) async fn pick_file(title: String) -> Result<Option<String>, String> {
-    blocking(move || rfd::FileDialog::new().set_title(&title).pick_file().map(|p| p.to_string_lossy().into_owned())).await
+pub(crate) async fn pick_file(title: String, window: tauri::Window) -> Result<Option<String>, String> {
+    blocking(move || file_dialog(&window).set_title(&title).pick_file().map(|p| p.to_string_lossy().into_owned())).await
 }
 
 /// File > Open Repo in <editor> (Preferences > External Tools > Editor); with `file`, open that file.
@@ -88,8 +101,8 @@ pub(crate) fn open_in_editor(path: String, file: Option<String>) -> Result<(), S
 }
 
 #[tauri::command]
-pub(crate) async fn pick_folder(title: String) -> Result<Option<String>, String> {
-    blocking(move || rfd::FileDialog::new().set_title(&title).pick_folder().map(|p| p.to_string_lossy().into_owned())).await
+pub(crate) async fn pick_folder(title: String, window: tauri::Window) -> Result<Option<String>, String> {
+    blocking(move || file_dialog(&window).set_title(&title).pick_folder().map(|p| p.to_string_lossy().into_owned())).await
 }
 
 #[tauri::command]

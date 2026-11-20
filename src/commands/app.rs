@@ -64,6 +64,8 @@ pub(crate) fn screenshot_ready(window: tauri::WebviewWindow, state: State<'_, Ap
     Ok(())
 }
 
+// `window` is only needed to find the window handle on Windows.
+#[cfg_attr(not(windows), allow(unused_variables))]
 pub(crate) fn take_and_exit(window: &tauri::WebviewWindow, out: &Path, app: &tauri::AppHandle) {
     #[cfg(windows)]
     let res = match window.hwnd() {

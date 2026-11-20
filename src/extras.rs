@@ -248,7 +248,7 @@ mod tests {
         g(&["config", "format.numbered", "true"]);
         g(&["config", "format.coverLetter", "true"]);
         // Patch of a commit, applied as a commit on another branch.
-        let patch = make_patch(&d, &[side.clone()]).unwrap();
+        let patch = make_patch(&d, std::slice::from_ref(&side)).unwrap();
         assert!(patch.starts_with("From "));
         assert!(patch.lines().any(|l| l == "Subject: [PATCH] side change"), "{patch}");
         assert_eq!(patch.lines().filter(|l| l.starts_with("Subject: ")).count(), 1);

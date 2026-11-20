@@ -172,7 +172,7 @@ pub fn gpg_generate(program: &str, name: &str, email: &str, passphrase: &str) ->
     }
     let out = l.output().map_err(|e| e.to_string())?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    let fpr = text.lines().filter_map(|x| x.strip_prefix("fpr:::::::::")).last().map(|f| f.trim_end_matches(':').to_string());
+    let fpr = text.lines().filter_map(|x| x.strip_prefix("fpr:::::::::")).next_back().map(|f| f.trim_end_matches(':').to_string());
     fpr.ok_or_else(|| "The key was created but could not be found afterwards.".into())
 }
 
