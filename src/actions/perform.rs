@@ -159,7 +159,7 @@ impl Engine {
                 done(result, "Checked out the pull request's source commit")
             }
             Action::CheckoutRemote { remote_branch } => {
-                let local = remote_branch.splitn(2, '/').nth(1).unwrap_or(&remote_branch).to_string();
+                let local = remote_branch.split_once('/').map_or(remote_branch.as_str(), |(_, branch)| branch).to_string();
                 let selected = format!("refs/remotes/{remote_branch}");
                 if !self.git(dir, &["check-ref-format", "--branch", &local]).ok || self.rev(dir, &selected).is_empty() {
                     return done(git::GitOut::failed("That remote branch is no longer available. Refresh the repository and try again."), "");

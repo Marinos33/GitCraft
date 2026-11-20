@@ -471,12 +471,11 @@ pub fn https_url(url: &str) -> Option<String> {
     let u = url.trim();
     let (host, path) = if let Some(rest) = u.strip_prefix("git@") {
         rest.split_once(':')?
-    } else if let Some(rest) = u.strip_prefix("ssh://") {
+    } else {
+        let rest = u.strip_prefix("ssh://")?;
         let rest = rest.split_once('@').map(|(_, r)| r).unwrap_or(rest);
         let (h, p) = rest.split_once('/')?;
         (h.split(':').next().unwrap_or(h), p)
-    } else {
-        return None;
     };
     let path = path.trim_matches('/').trim_end_matches(".git");
     if host == "ssh.dev.azure.com" {

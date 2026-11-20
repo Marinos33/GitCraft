@@ -16,12 +16,17 @@ pub const OPEN_PATH_FAILED: &str = "Failed to open path";
 /// The prefix when a web link can't be opened.
 pub const OPEN_EXTERNAL_FAILED: &str = "Failed to open: ";
 
-/// ShellExecuteEx flags and window state.
+/// ShellExecuteEx flags and window state (only the Windows code uses them).
+#[cfg(windows)]
 pub const SEE_MASK_CLASSNAME: u32 = 0x1;
+#[cfg(windows)]
 pub const SEE_MASK_NOASYNC: u32 = 0x100;
+#[cfg(windows)]
 pub const SEE_MASK_FLAG_NO_UI: u32 = 0x400;
+#[cfg(windows)]
 pub const SW_SHOWNORMAL: i32 = 1;
 /// SHELLEXECUTEINFOW size on 64-bit Windows (cbSize = 0x70).
+#[cfg(windows)]
 pub const SHELLEXECUTEINFO_SIZE: u32 = 0x70;
 
 /// Open a file with its usual app, or a folder in the file manager.
@@ -141,9 +146,11 @@ mod tests {
     #[test]
     fn shell_values_are_as_expected() {
         #[cfg(windows)]
-        assert_eq!(std::mem::size_of::<windows_sys::Win32::UI::Shell::SHELLEXECUTEINFOW>() as u32, SHELLEXECUTEINFO_SIZE);
-        assert_eq!(SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI, 0x500);
-        assert_eq!(SEE_MASK_NOASYNC | SEE_MASK_CLASSNAME, 0x101);
+        {
+            assert_eq!(std::mem::size_of::<windows_sys::Win32::UI::Shell::SHELLEXECUTEINFOW>() as u32, SHELLEXECUTEINFO_SIZE);
+            assert_eq!(SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI, 0x500);
+            assert_eq!(SEE_MASK_NOASYNC | SEE_MASK_CLASSNAME, 0x101);
+        }
         assert_eq!(OPEN_PATH_FAILED, "Failed to open path");
     }
 }

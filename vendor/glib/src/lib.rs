@@ -3,6 +3,9 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(clippy::missing_safety_doc)]
 #![allow(renamed_and_removed_lints)]
+// GitCraft: this copy is built as a path dependency, so rustc reports its style lints (written for
+// older compilers) on every build. They are not about the backported soundness fix; keep them quiet.
+#![allow(unknown_lints, mismatched_lifetime_syntaxes, unused_parens)]
 #![doc = include_str!("../README.md")]
 
 pub use bitflags;

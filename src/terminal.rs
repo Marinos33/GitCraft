@@ -118,6 +118,7 @@ impl Terminals {
         self.sessions.lock().unwrap().iter().map(|(id, session)| (*id, session.output.state.lock().unwrap().0)).collect()
     }
     /// Start a shell in `cwd`. Output goes to `on_data`; `on_exit` runs when the shell ends.
+    #[allow(clippy::too_many_arguments)]
     pub fn open(
         &self,
         shell: &str,

@@ -760,9 +760,7 @@ pub fn rename_source(dir: &Path, src: &DiffSource, path: &str, parent: Option<&s
     let mut records = output.stdout.split('\0');
     while let Some(status) = records.next() {
         let Some(old) = records.next() else { break };
-        if status.starts_with('R') || status.starts_with('C') {
-            if records.next() == Some(path) { return old.into(); }
-        }
+        if (status.starts_with('R') || status.starts_with('C')) && records.next() == Some(path) { return old.into(); }
     }
     path.into()
 }

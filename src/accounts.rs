@@ -50,6 +50,7 @@ pub struct AccountInfo {
 }
 
 fn cmd(program: &str) -> Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut c = Command::new(program);
     #[cfg(windows)]
     c.creation_flags(0x0800_0000);

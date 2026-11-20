@@ -418,7 +418,7 @@ pub fn save_checked_mode(dir: &Path, file: &str, content: &str, expected: Option
 /// Writes `p`, a path already checked by `save_target`.
 fn save_mode(dir: &Path, p: &Path, content: &str, utf8: bool) -> Result<(), String> {
     // Keep the file's existing line endings.
-    let before = match std::fs::read(&p) {
+    let before = match std::fs::read(p) {
         Ok(bytes)=>bytes,Err(error) if error.kind()==std::io::ErrorKind::NotFound=>Vec::new(),Err(error)=>return Err(error.to_string()),
     };
     let enc = encoding_rs::Encoding::for_bom(&before).map(|(encoding, _)| encoding).or_else(|| crate::prefs::encoding_for(dir));
@@ -432,7 +432,7 @@ fn save_mode(dir: &Path, p: &Path, content: &str, utf8: bool) -> Result<(), Stri
         Some(e) => crate::prefs::encode(&text, e, before.starts_with(&[0xFF, 0xFE]) || before.starts_with(&[0xFE, 0xFF]))?,
         None => text.into_bytes(),
     } };
-    replace_file(&p, &bytes).map_err(|e| e.to_string())
+    replace_file(p, &bytes).map_err(|e| e.to_string())
 }
 
 /// Follow an existing symlink while keeping the link itself intact. A same-directory
@@ -598,7 +598,7 @@ pub fn stats(dir: &Path, shas: &[String]) -> Result<Vec<Stats>, String> {
         let mut s = Stats { sha, files: 0, added: 0, deleted: 0 };
         if let Some(stat) = lines.next() {
             for part in stat.split(',') {
-                let n: u32 = part.trim().split_whitespace().next().and_then(|x| x.parse().ok()).unwrap_or(0);
+                let n: u32 = part.split_whitespace().next().and_then(|x| x.parse().ok()).unwrap_or(0);
                 if part.contains("file") {
                     s.files = n;
                 } else if part.contains("insertion") {

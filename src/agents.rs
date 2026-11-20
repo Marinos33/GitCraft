@@ -316,7 +316,7 @@ pub fn sessions(roots: &[String], claude_dir: Option<&str>, codex_dir: Option<&s
         }
     }
     out.extend(codex_sessions(codex.join("sessions"), roots));
-    out.sort_by(|a, b| b.modified.cmp(&a.modified));
+    out.sort_by_key(|s| std::cmp::Reverse(s.modified));
     let mut seen = std::collections::HashSet::new();
     out.retain(|s| seen.insert((s.agent.clone(), s.id.clone())));
     out
